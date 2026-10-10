@@ -28,7 +28,7 @@ def distribution_provenance(monkeypatch, provenance):
     def distribution(name):
         original = real_distribution(name)
         if name == 'tft-simulator':
-            return SimpleNamespace(read_text=lambda filename: provenance if filename == 'direct_url.json' else original.read_text(filename))
+            return SimpleNamespace(version=original.version, read_text=lambda filename: provenance if filename == 'direct_url.json' else original.read_text(filename))
         return original
 
     monkeypatch.setattr(session.metadata, 'distribution', distribution)
