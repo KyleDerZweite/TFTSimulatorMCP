@@ -2,7 +2,7 @@
 
 The Python stdio server operates one seeded eight-player game using the installed TFT simulator. `player_0` is controlled through MCP; seven opponents own existing `Default_Agent(False)` policies. The server starts, inspects, progresses, and closes games and queries static champion, trait and item rules. `end_turn` runs opponents and automated combat. `buy_unit` and `sell_unit` perform individual native purchases and sales. `refresh_shop` and `buy_xp` buy one native shop refresh or experience increment. `move_unit` positions owned units and performs supported native board/bench swaps. `equip_item` assigns inventory equipment and supported native consumables. Read the shared [Spec](../SPEC.md).
 
-Use the shared [installation and native client guide](../README.md) for archived CPU-only installation, registration, installed protocol checks and removal. Both hosts use this package's absolute installed `tft-mcp` entry point. The simulator and extension remain separate noneditable installations. No training, model-hosting or GPU packages are required.
+Use the shared [installation and native client guide](../README.md) for archived CPU-only installation, registration, installed protocol checks and removal. Both hosts use this package's absolute installed `tft-mcp` entry point. Installing this package resolves the unchanged simulator through its pinned external Git dependency. No training, model-hosting or GPU packages are required.
 
 Launch the installed entry point from any working directory:
 
@@ -23,7 +23,7 @@ env -u APPIMAGE /absolute/path/tft-mcp-venv/bin/tft-mcp
 
 The tested T3 Code AppImage host makes Python report the AppImage executable and ignore virtual-environment packages when that variable is inherited. Removing it from the server environment preserves the installed Python interpreter. Configure the MCP client command as `/usr/bin/env` with arguments `-u`, `APPIMAGE`, and the absolute `tft-mcp` path when needed.
 
-The launcher re-executes Python with `PYTHONHASHSEED=0` before loading the SDK or simulator. Audit records include that setting and an actual interpreter hash probe, seed, baseline identity and seed, the installed simulator environment name and source digest, distribution version, interpreter and dependency versions, and configuration. Source checkouts also record their Git revision. Set `TFT_MCP_SIMULATOR_REVISION` to the installed source revision for installations without Git metadata; otherwise the source SHA-256 identifies that revision. Paths and IDs do not affect gameplay equality.
+The launcher re-executes Python with `PYTHONHASHSEED=0` before loading the SDK or simulator. Audit records include that setting and an actual interpreter hash probe, seed, baseline identity and seed, the installed simulator environment name and source digest, distribution version, interpreter and dependency versions, and configuration. Installed `tft-simulator` direct_url.json Git commit metadata is authoritative, even when an environment hint conflicts. For an archive installation, `TFT_MCP_SIMULATOR_REVISION` supplies an explicit source revision hint; otherwise the source SHA-256 identifies the content. The enclosing MCP or host Git repository is never simulator provenance. Paths and IDs do not affect gameplay equality.
 
 `start_game` requires exactly `{"seed": integer}` with a value from 0 through 2147483647. Booleans, decimal JSON numbers, missing seeds and unknown arguments fail. `get_game_status`, `end_turn`, and `close_game` accept `{}` only. Status includes `state`, `game_id`, `controlled_player_id`, `round`, `planning_budget` and `outcome`. Idle game fields are null. Running planning budget has capacity 14 and remaining slots. Individual actions reserve the fifteenth internal slot for `end_turn`; exhaustion never starts combat. `end_turn` drains planning and returns the next controlled decision. After controlled elimination, baselines finish the lobby before it returns terminal with null budget and the final controlled placement. Own terminal data is frozen until close.
 
@@ -75,7 +75,7 @@ Both tools validate lifecycle and budget before legality. XP checks `level_cap` 
 Run the focused real adapter and SDK checks from the checkout:
 
 ```sh
-env -u APPIMAGE -u TFT_MCP_TEST_COMMAND PYTHONHASHSEED=0 PYTHONPATH=mcp/server/src /absolute/path/tft-mcp-venv/bin/python -m pytest -c mcp/server/pyproject.toml mcp/server/tests/test_shop_xp.py -q
+env -u APPIMAGE -u TFT_MCP_TEST_COMMAND PYTHONHASHSEED=0 PYTHONPATH=src /absolute/path/tft-mcp-venv/bin/python -m pytest -c pyproject.toml tests/test_shop_xp.py -q
 ```
 
 The suite separates ordinary production stdio journeys from a test-local preconfigured real-session SDK memory fixture for rare level-cap boundaries.
@@ -94,7 +94,7 @@ Each successful move consumes one shared planning action and returns in the same
 Run focused movement adapter and production SDK checks:
 
 ```sh
-env -u APPIMAGE -u TFT_MCP_TEST_COMMAND PYTHONHASHSEED=0 PYTHONPATH=mcp/server/src /absolute/path/tft-mcp-venv/bin/python -m pytest -c mcp/server/pyproject.toml mcp/server/tests/test_movement.py -q
+env -u APPIMAGE -u TFT_MCP_TEST_COMMAND PYTHONHASHSEED=0 PYTHONPATH=src /absolute/path/tft-mcp-venv/bin/python -m pytest -c pyproject.toml tests/test_movement.py -q
 ```
 
 Production stdio tests acquire units through gameplay and cover movement families, orientation, supported swaps, rejection, audit recovery and seeded replay with extra reads. Separate preconfigured real-session tests cover rare Azir, dummy, glove and capacity conditions. One rare Azir fixture also crosses official SDK memory streams through unchanged transport. See the [movement contract](../SPEC.md#movement-contract).
@@ -119,11 +119,10 @@ An installed observation limitation can still reject an otherwise legal native i
 Run from the checkout with the extension's `dev` extra installed. Select the source being reviewed explicitly:
 
 ```sh
-env -u APPIMAGE -u TFT_MCP_TEST_COMMAND PYTHONHASHSEED=0 PYTHONPATH=mcp/server/src /absolute/path/venv/bin/python -m pytest -c mcp/server/pyproject.toml mcp/server/tests -q
-env -u APPIMAGE /absolute/path/venv/bin/python mcp/server/scripts/check_scope.py REVIEWED_BASE_REVISION
+env -u APPIMAGE -u TFT_MCP_TEST_COMMAND PYTHONHASHSEED=0 PYTHONPATH=src /absolute/path/venv/bin/python -m pytest -c pyproject.toml tests -q
 env -u APPIMAGE /absolute/path/venv/bin/python -m pytest UnitTests/rng_test.py UnitTests/default_agent_test.py UnitTests/game_round_test.py UnitTests/simulator_test.py -q
 ```
 
-The scope check includes committed, staged, unstaged and untracked paths. Use the fixed base selected for the change; simulator source and root dependency changes are outside the extension contract. For a focused check, pass the affected test files to the same pytest command.
+Review committed, staged, unstaged and untracked changes against the selected fixed base. Verify wheel contents and installed import paths for package separation. Simulator core changes remain outside this repository's contract. For a focused check, pass the affected test files to the same pytest command.
 
 Installed acceptance uses `TFT_MCP_TEST_COMMAND` and removes `PYTHONPATH` outside the checkout. Follow [the installation guide](../README.md#install-a-pinned-revision). [verification.md](verification.md) distinguishes current checks, historical gameplay and unavailable evidence.

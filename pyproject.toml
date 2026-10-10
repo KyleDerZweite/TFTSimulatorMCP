@@ -3,11 +3,17 @@ requires = ["setuptools>=66"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "tft-mcp-server"
+name = "tftmuzero-mcp"
 version = "0.1.0"
 description = "Local stdio MCP tools for the installed TFT simulator"
 requires-python = ">=3.10"
-dependencies = ["mcp>=1.30,<2", "anyio>=4.5", "jsonschema>=4.20", "tft-simulator==0.1.0"]
+readme = "README.md"
+license = {file = "LICENSE"}
+dependencies = ["mcp>=1.30,<2", "anyio>=4.5", "jsonschema>=4.20", "tft-simulator @ git+https://github.com/silverlight6/TFTMuZeroAgent.git@33c2c6eb873da1aaf319dc0c36bcbec1ad20c48d"]
+
+[project.urls]
+Repository = "https://github.com/KyleDerZweite/TFTMuZeroMCP"
+"Original simulator" = "https://github.com/silverlight6/TFTMuZeroAgent"
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]

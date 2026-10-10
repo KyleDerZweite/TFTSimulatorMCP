@@ -271,14 +271,19 @@ def check_start_identity(record):
     from Simulator.simulators.tft_simulator import TFT_Simulator
 
     root = Path(metadata.distribution('tft-simulator').locate_file('Simulator')).resolve()
-    assert not root.is_relative_to(Path(__file__).resolve().parents[3])
+    assert not root.is_relative_to(Path(__file__).resolve().parents[1])
     digest = hashlib.sha256()
     for source in sorted(root.rglob('*.py')):
         digest.update(str(source.relative_to(root)).encode())
         digest.update(source.read_bytes())
     assert record['simulator']['source_sha256'] == digest.hexdigest()
-    assert record['simulator']['revision'] == os.environ.get('TFT_MCP_SIMULATOR_REVISION',
-                                                             'sha256:' + digest.hexdigest())
+    provenance = metadata.distribution('tft-simulator').read_text('direct_url.json')
+    if provenance and 'vcs_info' in json.loads(provenance):
+        assert record['simulator']['revision'] == json.loads(provenance)['vcs_info']['commit_id']
+    elif os.environ.get('TFT_MCP_SIMULATOR_REVISION'):
+        assert record['simulator']['revision'] == os.environ['TFT_MCP_SIMULATOR_REVISION']
+    else:
+        assert record['simulator']['revision'] == 'sha256:' + digest.hexdigest()
     assert record['simulator']['environment_name'] == TFT_Simulator.metadata['name']
     assert record['simulator']['distribution_version'] == metadata.version('tft-simulator')
     assert record['seed'] == record['baseline_seed'] == 0

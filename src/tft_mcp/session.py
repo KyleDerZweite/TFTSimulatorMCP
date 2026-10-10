@@ -11,7 +11,6 @@ import random
 import shutil
 import tempfile
 from functools import wraps
-import subprocess
 import sys
 import threading
 import uuid
@@ -1062,15 +1061,16 @@ def simulator_identity():
     for path in sorted(source_root.rglob("*.py")):
         digest.update(str(path.relative_to(source_root)).encode())
         digest.update(path.read_bytes())
-    revision = os.environ.get("TFT_MCP_SIMULATOR_REVISION")
-    if not revision:
+    distribution = metadata.distribution("tft-simulator")
+    provenance = distribution.read_text("direct_url.json")
+    revision = None
+    if provenance:
         try:
-            revision = subprocess.run(
-                ["git", "-C", str(source_root), "rev-parse", "HEAD"],
-                capture_output=True, text=True, check=True,
-            ).stdout.strip()
-        except (OSError, subprocess.CalledProcessError):
-            revision = None
+            revision = json.loads(provenance).get("vcs_info", {}).get("commit_id")
+        except (ValueError, AttributeError, TypeError):
+            pass
+    if not revision:
+        revision = os.environ.get("TFT_MCP_SIMULATOR_REVISION")
     return {"revision": revision or "sha256:" + digest.hexdigest(), "source_sha256": digest.hexdigest(),
             "environment_name": TFT_Simulator.metadata.get("name"),
             "distribution_version": metadata.version("tft-simulator")}

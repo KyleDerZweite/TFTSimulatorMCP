@@ -1,36 +1,49 @@
-# TFT simulator MCP extension
+# TFTMuZeroMCP
 
-This local stdio server controls `player_0` in one seeded eight-player game. Seven opponents use the simulator's existing `Default_Agent(False)` policy. Codex CLI or Claude Code owns model inference and chooses individual MCP actions.
+[TFTMuZeroMCP](https://github.com/KyleDerZweite/TFTMuZeroMCP) provides local stdio MCP tools for the unchanged [original TFT simulator, silverlight6/TFTMuZeroAgent](https://github.com/silverlight6/TFTMuZeroAgent). This repository owns the MCP adapter, tools and tests. The simulator owns game mechanics and remains an external dependency pinned to Git revision `33c2c6eb873da1aaf319dc0c36bcbec1ad20c48d`.
 
-Use [SETUP_PROMPT.md](SETUP_PROMPT.md) to let a native host install and connect the server, then [GAME_PROMPT.md](GAME_PROMPT.md) to play. The [server reference](server/README.md) describes all 25 tools and native limitations. [SPEC.md](SPEC.md) owns behavior and architecture; [verification.md](server/verification.md) records tested revisions and remaining limits.
+The server controls `player_0` in one seeded eight-player game. Seven opponents use the simulator's existing `Default_Agent(False)` policy. Codex CLI or Claude Code owns model inference and chooses individual MCP actions. The installed Simulator runs in the same Python process as GameSession.
+
+```mermaid
+flowchart LR
+    Host[Codex CLI or Claude Code] -->|stdio MCP| Transport[MCP transport]
+    subgraph Python[Server Python process]
+        Transport --> Session[GameSession]
+        Session --> Simulator[Installed Simulator library]
+    end
+```
+
+Use [SETUP_PROMPT.md](SETUP_PROMPT.md) to install and connect the server, then [GAME_PROMPT.md](GAME_PROMPT.md) to play. The [tool reference](docs/tool-reference.md) describes all 25 tools and native limitations. [SPEC.md](SPEC.md) owns behavior and architecture; [verification.md](docs/verification.md) records tested revisions and remaining limits. PoroSight integration remains optional future work outside this project contract.
 
 ## Install a pinned revision
 
-Use Python 3.10 or newer and a fresh external installation directory. Select a full Git revision containing `mcp/server/`. Replace the paths and revision below. The archived source and separate noneditable packages keep the installation independent of subsequent checkout changes. No GPU or model-hosting dependencies are required.
+Use Python 3.10 or newer and a fresh external environment. The old `tft-mcp-server` distribution shares the `tft_mcp` import and `tft-mcp` launcher, so do not mix both packages in an existing environment. No simulator checkout, GPU or model-hosting dependencies are required. Pip installs the unchanged simulator automatically from its pinned Git dependency; Git must be available. This installation makes no promise about a PyPI simulator release.
+
+Clone this repository and replace the paths and full verified MCP revision below. Archive the MCP source and install noneditably so checkout changes cannot change the installed server.
 
 ```sh
-TFT_REPO=/absolute/path/TFTMuZeroAgent
-TFT_INSTALL=/absolute/path/operator-owned/tft-mcp
-TFT_REVISION=FULL_VERIFIED_GIT_REVISION
+TFT_REPO=/absolute/path/TFTMuZeroMCP
+TFT_INSTALL=/absolute/path/operator-owned/tftmuzero-mcp
+TFT_MCP_REVISION=FULL_VERIFIED_MCP_GIT_REVISION
+TFT_SIMULATOR_REVISION=33c2c6eb873da1aaf319dc0c36bcbec1ad20c48d
 mkdir -p "$TFT_INSTALL/source" "$TFT_INSTALL/host" "$TFT_INSTALL/logs/sdk" "$TFT_INSTALL/logs/codex" "$TFT_INSTALL/logs/claude"
 chmod 700 "$TFT_INSTALL" "$TFT_INSTALL/logs"
 git init -q "$TFT_INSTALL/host"
-git -C "$TFT_REPO" archive --output="$TFT_INSTALL/source.tar" "$TFT_REVISION"
+git -C "$TFT_REPO" archive --output="$TFT_INSTALL/source.tar" "$TFT_MCP_REVISION"
 tar -xf "$TFT_INSTALL/source.tar" -C "$TFT_INSTALL/source"
 env -u APPIMAGE python3 -m venv "$TFT_INSTALL/venv"
-env -u APPIMAGE "$TFT_INSTALL/venv/bin/python" -m pip install "$TFT_INSTALL/source"
-env -u APPIMAGE "$TFT_INSTALL/venv/bin/python" -m pip install "$TFT_INSTALL/source/mcp/server[dev]"
+env -u APPIMAGE "$TFT_INSTALL/venv/bin/python" -m pip install "$TFT_INSTALL/source[dev]"
 env -u APPIMAGE "$TFT_INSTALL/venv/bin/python" -m pip check
 sha256sum "$TFT_INSTALL/source.tar"
 cd "$TFT_INSTALL/host"
-env -u APPIMAGE -u PYTHONPATH "$TFT_INSTALL/venv/bin/python" -c 'import sys, Simulator, tft_mcp; from importlib.metadata import version; print(sys.executable, Simulator.__file__, tft_mcp.__file__); print({n:version(n) for n in ("tft-simulator","tft-mcp-server","numpy","PettingZoo","gymnasium","mcp")})'
+env -u APPIMAGE -u PYTHONPATH "$TFT_INSTALL/venv/bin/python" -c 'import sys, Simulator, tft_mcp; from importlib.metadata import version; print(sys.executable, Simulator.__file__, tft_mcp.__file__); print({n:version(n) for n in ("tft-simulator","tftmuzero-mcp","numpy","PettingZoo","gymnasium","mcp")})'
 TFT_CHECK_DIR="$(mktemp -d "$TFT_INSTALL/logs/sdk/check-XXXXXX")"
-env -u APPIMAGE -u PYTHONPATH TFT_MCP_SIMULATOR_REVISION="$TFT_REVISION" TFT_MCP_TEST_COMMAND="$TFT_INSTALL/venv/bin/tft-mcp" "$TFT_INSTALL/venv/bin/python" -m pytest -c "$TFT_INSTALL/source/mcp/server/pyproject.toml" "$TFT_INSTALL/source/mcp/server/tests/test_protocol.py" -k production_discovery_and_idle -q --basetemp="$TFT_CHECK_DIR/protocol"
+env -u APPIMAGE -u PYTHONPATH TFT_MCP_TEST_COMMAND="$TFT_INSTALL/venv/bin/tft-mcp" "$TFT_INSTALL/venv/bin/python" -m pytest -c "$TFT_INSTALL/source/pyproject.toml" "$TFT_INSTALL/source/tests/test_protocol.py" -k production_discovery_and_idle -q --basetemp="$TFT_CHECK_DIR/protocol"
 ```
 
-Imports must resolve inside the new venv. The idle SDK check launches the installed server outside the checkout and verifies discovery of exactly 25 tools without starting a game. For separately authorized installation acceptance, replace the selector with `-k 'not full_lobby and not invalid_output'` to exercise lifecycle, restart, determinism, strict inputs and failure recovery. Those checks start test games. `invalid_output` uses an in-process source fixture and belongs to developer checks.
+Imports must resolve inside the new venv. The idle SDK check launches the installed server outside both checkouts and verifies exactly 25 tools without starting a game. For installation acceptance that includes test games, use `-k 'not full_lobby and not invalid_output'` instead. The `invalid_output` fixture uses checkout source and belongs to developer checks.
 
-Use a new `TFT_CHECK_DIR` for every run because pytest clears its `--basetemp` directory. Record the source revision and archive checksum alongside package versions. Both project package versions are currently `0.1.0`; their versions alone do not identify source content.
+Use a new `TFT_CHECK_DIR` for every run because pytest clears its basetemp directory. Record the MCP revision/archive checksum and simulator commit/source digest separately. Installed simulator `direct_url.json` commit metadata overrides conflicting environment hints. Archive installs may retain an explicit `TFT_MCP_SIMULATOR_REVISION` hint; every install records the actual source SHA-256. Package versions alone do not identify source content.
 
 ## Connect a native host
 
@@ -40,8 +53,8 @@ These commands register an absent entry. Run only the command for your host:
 
 ```sh
 cd "$TFT_INSTALL/host"
-codex mcp add tft --env "TFT_MCP_AUDIT_PATH=$TFT_INSTALL/logs/codex/audit.jsonl" --env "TFT_MCP_NATIVE_LOG_DIR=$TFT_INSTALL/logs/codex/native" --env "TFT_MCP_SIMULATOR_REVISION=$TFT_REVISION" -- /usr/bin/env -u APPIMAGE "$TFT_INSTALL/venv/bin/tft-mcp"
-claude mcp add --scope local --transport stdio tft -e "TFT_MCP_AUDIT_PATH=$TFT_INSTALL/logs/claude/audit.jsonl" -e "TFT_MCP_NATIVE_LOG_DIR=$TFT_INSTALL/logs/claude/native" -e "TFT_MCP_SIMULATOR_REVISION=$TFT_REVISION" -- /usr/bin/env -u APPIMAGE "$TFT_INSTALL/venv/bin/tft-mcp"
+codex mcp add tft --env "TFT_MCP_AUDIT_PATH=$TFT_INSTALL/logs/codex/audit.jsonl" --env "TFT_MCP_NATIVE_LOG_DIR=$TFT_INSTALL/logs/codex/native" --env "TFT_MCP_SIMULATOR_REVISION=$TFT_SIMULATOR_REVISION" -- /usr/bin/env -u APPIMAGE "$TFT_INSTALL/venv/bin/tft-mcp"
+claude mcp add --scope local --transport stdio tft -e "TFT_MCP_AUDIT_PATH=$TFT_INSTALL/logs/claude/audit.jsonl" -e "TFT_MCP_NATIVE_LOG_DIR=$TFT_INSTALL/logs/claude/native" -e "TFT_MCP_SIMULATOR_REVISION=$TFT_SIMULATOR_REVISION" -- /usr/bin/env -u APPIMAGE "$TFT_INSTALL/venv/bin/tft-mcp"
 ```
 
 Codex stores registration in `~/.codex/config.toml`. Claude's private local entry belongs to the project in `~/.claude.json`. Use the same external `host` directory for registration and fresh Claude sessions. Its empty Git repository establishes a stable project root without adding client configuration to the source repository.
@@ -62,9 +75,9 @@ Open a fresh native session and request an actual `tft.get_game_status` call. Re
 
 Supply the text block from [GAME_PROMPT.md](GAME_PROMPT.md) to a fresh native session. Reads do not consume budget or randomness. Individual actions consume one of 14 planning slots and interleave baseline decisions. Explicit `end_turn` starts combat and finishes the remaining lobby after controlled elimination. Terminal own categories retain the controlled snapshot; `get_round` reports the final lobby round and `get_players` reports all eight placements.
 
-Board coordinates are x=0..6 left to right and y=0..3 bottom to top. Bench slots are 0..8, shop slots 0..4 and loose inventory slots 0..9. Rules come from installed simulator definitions. See the [server reference](server/README.md) for opponent privacy, action schemas and unsupported native cases.
+Board coordinates are x=0..6 left to right and y=0..3 bottom to top. Bench slots are 0..8, shop slots 0..4 and loose inventory slots 0..9. Rules come from installed simulator definitions. See the [server reference](docs/tool-reference.md) for opponent privacy, action schemas and unsupported native cases.
 
-[Developer checks](server/README.md#developer-checks) select checkout source explicitly. Installed-launcher checks remain separate. Process restart begins idle; games do not resume. Closing a game preserves its logs.
+[Developer checks](docs/tool-reference.md#developer-checks) select checkout source explicitly. Installed-launcher checks remain separate. Process restart begins idle; games do not resume. Closing a game preserves its logs.
 
 ## Remove the entry
 

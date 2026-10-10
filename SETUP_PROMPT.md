@@ -5,13 +5,14 @@ Copy this prompt into Codex CLI or Claude Code with the repository checkout avai
 ```text
 Install the TFT MCP server from the repository containing this prompt and
 connect it to my current Codex CLI or Claude Code host. Use the existing
-checkout and a pinned full Git revision containing mcp/server/. If no checkout
+checkout and a pinned full Git revision of TFTMuZeroMCP. If no checkout
 or source revision is available, ask for the repository URL and revision.
 
-Read mcp/README.md, mcp/server/README.md and the installation/client contract in
-mcp/SPEC.md. Follow the archived-source CPU-only installation instructions in
-a fresh external directory. Install the simulator noneditably first, then the
-separate extension. Preserve unrelated checkout work and host settings.
+Read README.md, docs/tool-reference.md and the installation/client contract in
+SPEC.md. Follow the archived-source CPU-only installation instructions in
+a fresh external directory. Install the standalone package noneditably; its pinned Git dependency installs
+the unchanged simulator automatically. Use a fresh environment, because the old
+tft-mcp-server package shares the same import and launcher names. Preserve unrelated checkout work and host settings.
 
 Use absolute installed launcher paths and protected writable logs. Remove
 APPIMAGE from Python/server child environments on affected hosts. Run pip check,
@@ -40,7 +41,7 @@ call. Report an exact reload or access blocker if it fails; registration and
 discovery alone do not establish connection. Retain a correct entry unchanged
 on repeated setup.
 
-Report source revision, package versions, source digest, interpreter/launcher
+Report MCP revision and simulator revision separately, package versions, source digest, interpreter/launcher
 paths, log locations, host version, configuration preservation and checks that
-passed or remain open. Provide mcp/GAME_PROMPT.md and the removal commands.
+passed or remain open. Provide GAME_PROMPT.md and the removal commands.
 ```
