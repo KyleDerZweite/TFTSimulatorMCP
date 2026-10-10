@@ -2,6 +2,8 @@
 
 Accepted owner direction on 2026-10-11: move the MCP project to independent repository KyleDerZweite/TFTMuZeroMCP. The simulator remains silverlight6/TFTMuZeroAgent. Link both projects in README and project metadata and explain ownership.
 
+The split contract was independently reviewed at clean checkpoint `7daa5c380a7d4c791dce091249d86be590a018db` on 2026-10-11 and is Ready. The remaining monorepo paths are migration work, not unresolved design decisions.
+
 ## Migration contract
 
 - Use normal Python src layout: root pyproject.toml, src/tft_mcp/, tests/, root README/SPEC/AGENTS/GLOSSARY/prompts and docs/tool-reference.md plus docs/verification.md. Name the distribution tftmuzero-mcp while preserving tft_mcp and tft-mcp compatibility.
