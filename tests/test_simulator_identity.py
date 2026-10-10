@@ -71,3 +71,21 @@ def test_missing_vcs_provenance_retains_archive_hint_and_actual_digest(monkeypat
     assert identity['source_sha256'] == installed_digest()
     monkeypatch.delenv('TFT_MCP_SIMULATOR_REVISION')
     assert session.simulator_identity()['revision'] == 'sha256:' + installed_digest()
+
+
+def test_acceptance_identity_allows_installed_venv_beneath_checkout(monkeypatch, tmp_path):
+    import sys
+    import test_acceptance
+    from support import started_session
+
+    checkout = Path(sys.prefix).resolve().parent
+    root = Path(session.metadata.distribution('tft-simulator').locate_file('Simulator')).resolve()
+    assert root.is_relative_to(checkout)
+    monkeypatch.setattr(test_acceptance, '__file__', str(checkout / 'tests/test_acceptance.py'))
+    game = started_session(tmp_path)
+    try:
+        events = [json.loads(line) for line in (tmp_path / 'audit.jsonl').read_text().splitlines()]
+        start = next(event for event in events if event['event'] == 'game_started')
+        test_acceptance.check_start_identity(start)
+    finally:
+        game.close_game()

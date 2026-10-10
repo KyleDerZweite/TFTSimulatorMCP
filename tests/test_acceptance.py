@@ -267,11 +267,12 @@ def check_start_identity(record):
     from importlib import metadata
     import os
     import sys
+    import Simulator
     from Simulator import config
     from Simulator.simulators.tft_simulator import TFT_Simulator
 
     root = Path(metadata.distribution('tft-simulator').locate_file('Simulator')).resolve()
-    assert not root.is_relative_to(Path(__file__).resolve().parents[1])
+    assert Path(Simulator.__file__).resolve().parent == root
     digest = hashlib.sha256()
     for source in sorted(root.rglob('*.py')):
         digest.update(str(source.relative_to(root)).encode())
