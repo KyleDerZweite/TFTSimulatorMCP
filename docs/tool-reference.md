@@ -120,7 +120,6 @@ Run from the checkout with the extension's `dev` extra installed. Select the sou
 
 ```sh
 env -u APPIMAGE -u TFT_MCP_TEST_COMMAND PYTHONHASHSEED=0 PYTHONPATH=src /absolute/path/venv/bin/python -m pytest -c pyproject.toml tests -q
-env -u APPIMAGE /absolute/path/venv/bin/python -m pytest UnitTests/rng_test.py UnitTests/default_agent_test.py UnitTests/game_round_test.py UnitTests/simulator_test.py -q
 ```
 
 Review committed, staged, unstaged and untracked changes against the selected fixed base. Verify wheel contents and installed import paths for package separation. Simulator core changes remain outside this repository's contract. For a focused check, pass the affected test files to the same pytest command.
