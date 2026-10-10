@@ -1,3 +1,20 @@
+# TFTMuZeroMCP repository split contract
+
+Accepted owner direction on 2026-10-11: move the MCP project to independent repository KyleDerZweite/TFTMuZeroMCP. The simulator remains silverlight6/TFTMuZeroAgent. Link both projects in README and project metadata and explain ownership.
+
+## Migration contract
+
+- Use normal Python src layout: root pyproject.toml, src/tft_mcp/, tests/, root README/SPEC/AGENTS/GLOSSARY/prompts and docs/tool-reference.md plus docs/verification.md. Name the distribution tftmuzero-mcp while preserving tft_mcp and tft-mcp compatibility.
+- Install unchanged tft-simulator as an external Git dependency pinned to 33c2c6eb873da1aaf319dc0c36bcbec1ad20c48d. Do not include Simulator files, UnitTests, training code or PoroSight. No submodule, remote simulator process, RPC or backend abstraction is required.
+- Native hosts speak stdio MCP to this server. GameSession calls the installed Simulator library in the same Python process. Existing transactions, RNG, baselines, schemas and legal behavior remain intact.
+- Read authoritative installed simulator commit metadata from direct_url.json when available. Never attribute the enclosing MCP checkout to simulator identity. Retain source digest and explicit archive revision hints when immutable metadata is unavailable. Record MCP and simulator revisions independently.
+- Remove the obsolete monorepo path checker and its four tests. Verify separation through wheel contents, import locations and installed SDK execution outside both checkouts. Adapt source-relative acceptance paths and provenance assertions.
+- Preserve filtered MCP Git history, Apache license and extraction source 7fff190eb83af3d837fb74abfbb8a6fe7c30d2aa. Reconcile all documentation and commands; prior results remain historical evidence.
+- Verify the complete migrated suite, fresh noneditable installation resolving the Git simulator dependency, pip consistency, 25 tools, lifecycle/error recovery and full-game replay. Add provenance regressions. Finish independent Standards and Spec review and fix findings.
+- Publish the verified new repository, withdraw obsolete upstream draft PR89, then remove current MCP files and MCP glossary from the simulator fork without core edits or history rewriting. Keep protected installations, host configuration, credentials and logs. Core changes and PoroSight additions remain separate work.
+
+Reconcile the old monorepo paths in the existing gameplay contract below; preserve its behavior.
+
 # MCP tools for the installed TFT simulator
 
 This contract defines the local stdio server, its simulator adapter and native-host acceptance. Current results are recorded in [server/verification.md](server/verification.md).
