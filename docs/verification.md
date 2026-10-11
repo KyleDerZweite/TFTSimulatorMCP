@@ -1,6 +1,16 @@
 # Verification
 
-The results below are historical split evidence under the preceding TFTMuZeroMCP name. The project is now named TFTSimulatorMCP; this documentation change does not rerun or extend these checks.
+## Project name and documentation
+
+Verified on 2026-10-11 at `0f5f72eac895cb98f722331772761ca876ea3cec`, based on `2420f858cbcc980c1f3678e89dbd9e523cc1a68f`. The repository is TFTSimulatorMCP and the distribution is `tft-simulator-mcp`. Production source, tests, simulator dependency, import and launcher are unchanged.
+
+The exact manual installation block in [setup.md](setup.md#install-a-pinned-revision) passed in a fresh noneditable environment. Its idle SDK check passed; the documented expanded selector passed six protocol checks in 10.93s, with five unrelated cases deselected. Reusing the installation path failed before changing the archive or revision records. Pip consistency, installed module identities, simulator commit/digest and wheel separation passed. Thirty local Markdown targets, nine shell blocks and three JSON argument examples were checked, and the tool index contains exactly 25 tools. Both independent reviews had no findings.
+
+Evidence is retained under `/home/kyle/.local/share/tft-simulator-mcp/install-20261011-091727/logs`, including `setup-check.log`, `sdk/expanded-protocol.log`, `rename-identity.json` and `repeated-install-refusal.txt`. The archive SHA-256 is `dc14d1d99e7b0cb2cde0056a8047bd4b099ede47bd4b81750fc4064f5232ba25`. Native registrations and historical installations were retained. Full gameplay and native LLM tests were not repeated for metadata and documentation changes.
+
+## Previous standalone extraction
+
+These results are historical evidence under the preceding TFTMuZeroMCP name. Their paths and revisions remain literal; they do not establish a new full-game run for the renamed distribution.
 
 Verified on 2026-10-11. The reviewed standalone implementation is `5fa9552d1a3b503efcd76c2869d858dc3f1a858c`, based on `da519e9278ba2facb5b5d1227d4ccd63492ef002`. Production modules have not changed since frozen source `bc8847e`. The later `367eff4` correction affects an acceptance assertion and its regression test only.
 
