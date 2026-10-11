@@ -1,8 +1,8 @@
-# TFT MCP server
+# TFTSimulatorMCP tool reference
 
 The Python stdio server operates one seeded eight-player game using the installed TFT simulator. `player_0` is controlled through MCP; seven opponents own existing `Default_Agent(False)` policies. The server starts, inspects, progresses, and closes games and queries static champion, trait and item rules. `end_turn` runs opponents and automated combat. `buy_unit` and `sell_unit` perform individual native purchases and sales. `refresh_shop` and `buy_xp` buy one native shop refresh or experience increment. `move_unit` positions owned units and performs supported native board/bench swaps. `equip_item` assigns inventory equipment and supported native consumables. Read the shared [Spec](../SPEC.md).
 
-Use the shared [installation and native client guide](../README.md) for archived CPU-only installation, registration, installed protocol checks and removal. Both hosts use this package's absolute installed `tft-mcp` entry point. Installing this package resolves the unchanged simulator through its pinned external Git dependency. No training, model-hosting or GPU packages are required.
+Use the shared [installation and native client guide](setup.md) for archived CPU-only installation, registration, installed protocol checks and removal. Both hosts use this package's absolute installed `tft-mcp` entry point. Installing this package resolves the unchanged simulator through its pinned external Git dependency. No training, model-hosting or GPU packages are required.
 
 Launch the installed entry point from any working directory:
 
@@ -28,6 +28,50 @@ The launcher re-executes Python with `PYTHONHASHSEED=0` before loading the SDK o
 `start_game` requires exactly `{"seed": integer}` with a value from 0 through 2147483647. Booleans, decimal JSON numbers, missing seeds and unknown arguments fail. `get_game_status`, `end_turn`, and `close_game` accept `{}` only. Status includes `state`, `game_id`, `controlled_player_id`, `round`, `planning_budget` and `outcome`. Idle game fields are null. Running planning budget has capacity 14 and remaining slots. Individual actions reserve the fifteenth internal slot for `end_turn`; exhaustion never starts combat. `end_turn` drains planning and returns the next controlled decision. After controlled elimination, baselines finish the lobby before it returns terminal with null budget and the final controlled placement. Own terminal data is frozen until close.
 
 Starting an active game returns `game_active` and preserves it. Closing a running game returns its ID, an outcome with `reason: "closed_incomplete"`, and idle status. Repeated close is harmless. Structured errors contain `code`, `message`, and `details`, with MCP `isError: true`. Codes include `invalid_input`, `game_active`, `no_game`, `game_terminal`, `budget_exhausted`, `log_unavailable` and `internal_error`. Malformed MCP request envelopes use native SDK protocol errors. Successful output schemas are validated before atomic audit replacement. Candidate gameplay, policies, RNG and native writes are published only after that commit. Native, internal and audit failures preserve the committed game and accepted logs; failed initialization leaves idle. Process restarts begin idle and do not resume old games.
+
+## Tool index
+
+All arguments are JSON objects. Empty argument objects are `{}`; unknown keys and explicit null optional filters are rejected.
+
+| Tools | Arguments | Use |
+| --- | --- | --- |
+| `start_game` | `seed` integer | Start one game from idle |
+| `get_game_status`, `close_game`, `end_turn` | `{}` | Inspect lifecycle, close, or explicitly finish planning |
+| `get_board`, `get_traits` | Optional `player_id` string | Own or living opponent public data |
+| `get_bench`, `get_shop`, `get_items`, `get_economy`, `get_round`, `get_players` | `{}` | Own categories, lobby round or public player status |
+| `search_champions` | Optional `query`, `cost`, `trait_id` | Search canonical champions |
+| `get_champion` | `champion_id` string | Read one champion definition |
+| `search_traits` | Optional `query` | Search canonical traits |
+| `get_trait`, `get_trait_champions` | `trait_id` string | Read trait rules or intrinsic members |
+| `search_items` | Optional `query`, `kind` | Search canonical items |
+| `get_item` | `item_id` string | Read item rules and constraints |
+| `buy_unit` | `shop_slot` integer | Buy a visible shop offer |
+| `sell_unit` | `location` | Sell an owned board or bench unit |
+| `refresh_shop`, `buy_xp` | `{}` | Buy one refresh or XP increment |
+| `move_unit` | `source`, `target` locations | Move or perform a supported swap |
+| `equip_item` | `item_slot`, `target` location | Assign equipment or a supported consumable |
+
+### Argument examples
+
+Pass this argument object to `start_game` while idle:
+
+```json
+{"seed": 0}
+```
+
+After inspecting an occupied bench slot and legal board destination, pass this object to `move_unit`:
+
+```json
+{"source": {"kind": "bench", "slot": 0}, "target": {"kind": "board", "x": 3, "y": 0}}
+```
+
+After inspecting a compatible item and owned target, pass this object to `equip_item`:
+
+```json
+{"item_slot": 0, "target": {"kind": "bench", "slot": 0}}
+```
+
+These examples show schemas; legality depends on the current game. Inspect state before choosing slots. Use `end_turn` with `{}` to finish planning. Catalog calls can run while idle.
 
 ## Tool reference
 
@@ -72,15 +116,6 @@ Action errors include `empty_slot`, `insufficient_gold`, `capacity_exceeded` and
 
 Both tools validate lifecycle and budget before legality. XP checks `level_cap` before affordability and reports `level` and `max_level`. Unaffordable calls return `insufficient_gold` with `resource`, `required` and `available`. Failed native effects or inconsistent postconditions return `internal_error`. Rejections and failures preserve committed gameplay, budget, baseline policies, RNG and accepted logs through the shared transaction. See the [shop refresh and experience contract](../SPEC.md#shop-refresh-and-experience-contract).
 
-Run the focused real adapter and SDK checks from the checkout:
-
-```sh
-env -u APPIMAGE -u TFT_MCP_TEST_COMMAND PYTHONHASHSEED=0 PYTHONPATH=src /absolute/path/tft-mcp-venv/bin/python -m pytest -c pyproject.toml tests/test_shop_xp.py -q
-```
-
-The suite separates ordinary production stdio journeys from a test-local preconfigured real-session SDK memory fixture for rare level-cap boundaries.
-
-
 ### Movement
 
 `move_unit` requires exactly `source` and `target`. Each is a strict board location `{"kind":"board","x":integer,"y":integer}` or bench location `{"kind":"bench","slot":integer}`. The documented board orientation and slot bounds apply. Unknown keys, nulls, booleans and decimal coordinates return `invalid_input`. No player selector is accepted. The source must hold an owned unit, even when the target is occupied. Same-location and native-disabled bench-to-bench requests return `unsupported_action`.
@@ -90,15 +125,6 @@ Board moves support empty destinations and native swaps in either coordinate dir
 Board dummies and sandguards can reposition and swap on board but cannot leave to bench or be displaced there. Azir bench entry requires two free guard cells after displacement and outgoing Azir guard removal. Native guard creation, removal, board positioning, overlord state and linkage remain intact. Benched Azir retains its old coordinate list. Newly spawned guards retain native initial cached coordinates; receipts use their actual board storage. Glove tracking follows native supported swaps.
 
 Each successful move consumes one shared planning action and returns in the same round. The receipt contains exactly detached `source`, `target`, observed `unit_changes` and `status`. Changes use the existing unit records in board x/y then bench-slot order, including displaced units and Azir guard/link changes. Distinct units with identical visible records can swap with an empty change list. Candidate identity checks still prove the move. Invalid legality, silent native failure, inconsistent metadata and corrupt postconditions discard the complete candidate, baselines, RNG and logs.
-
-Run focused movement adapter and production SDK checks:
-
-```sh
-env -u APPIMAGE -u TFT_MCP_TEST_COMMAND PYTHONHASHSEED=0 PYTHONPATH=src /absolute/path/tft-mcp-venv/bin/python -m pytest -c pyproject.toml tests/test_movement.py -q
-```
-
-Production stdio tests acquire units through gameplay and cover movement families, orientation, supported swaps, rejection, audit recovery and seeded replay with extra reads. Separate preconfigured real-session tests cover rare Azir, dummy, glove and capacity conditions. One rare Azir fixture also crosses official SDK memory streams through unchanged transport. See the [movement contract](../SPEC.md#movement-contract).
-
 
 ### Equipment
 
@@ -116,12 +142,26 @@ An installed observation limitation can still reject an otherwise legal native i
 
 ## Developer checks
 
-Run from the checkout with the extension's `dev` extra installed. Select the source being reviewed explicitly:
+Run from the selected checkout. Create a fresh external developer environment first; choose an unused absolute path and do not reuse an environment containing the historical packages:
 
 ```sh
-env -u APPIMAGE -u TFT_MCP_TEST_COMMAND PYTHONHASHSEED=0 PYTHONPATH=src /absolute/path/venv/bin/python -m pytest -c pyproject.toml tests -q
+set -eu
+TFT_DEV_VENV="$HOME/.local/share/tft-simulator-mcp/dev-$(date +%Y%m%d-%H%M%S)"
+if [ -e "$TFT_DEV_VENV" ] || [ -L "$TFT_DEV_VENV" ]; then
+    echo "Developer environment already exists: $TFT_DEV_VENV" >&2
+    exit 1
+fi
+env -u APPIMAGE python3 -m venv "$TFT_DEV_VENV"
+env -u APPIMAGE "$TFT_DEV_VENV/bin/python" -m pip install -e '.[dev]'
+env -u APPIMAGE "$TFT_DEV_VENV/bin/python" -m pip check
 ```
 
-Review committed, staged, unstaged and untracked changes against the selected fixed base. Verify wheel contents and installed import paths for package separation. Simulator core changes remain outside this repository's contract. For a focused check, pass the affected test files to the same pytest command.
+Select checkout source explicitly for tests:
 
-Installed acceptance uses `TFT_MCP_TEST_COMMAND` and removes `PYTHONPATH` outside the checkout. Follow [the installation guide](../README.md#install-a-pinned-revision). [verification.md](verification.md) distinguishes current checks, historical gameplay and unavailable evidence.
+```sh
+env -u APPIMAGE -u TFT_MCP_TEST_COMMAND PYTHONHASHSEED=0 PYTHONPATH=src "$TFT_DEV_VENV/bin/python" -m pytest -c pyproject.toml tests -q
+```
+
+Review committed, staged, unstaged and untracked changes against the selected fixed base. Verify wheel contents and installed import paths for package separation. Simulator core changes remain outside this repository's contract. For a focused check, replace `tests` with the affected files, such as `tests/test_movement.py` or `tests/test_shop_xp.py`, in the same command. Production stdio journeys use naturally acquired units. Rare Azir, dummy, glove, capacity and level-cap cases use preconfigured real-session fixtures; memory-stream SDK checks remain separate from naturally reached production gameplay.
+
+Installed acceptance uses `TFT_MCP_TEST_COMMAND` and removes `PYTHONPATH` outside the checkout. Follow [the installation guide](setup.md#install-a-pinned-revision). [verification.md](verification.md) distinguishes current checks, historical gameplay and unavailable evidence.

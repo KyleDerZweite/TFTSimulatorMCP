@@ -1,6 +1,6 @@
-# Play a complete TFT game
+# Play a complete game with TFTSimulatorMCP
 
-Copy this prompt into a fresh Codex or Claude Code session after [setup](SETUP_PROMPT.md). Use the saved accepted Codex `tft` default approval. Global host permissions, per-tool overrides and Claude policies still apply. Setup alone does not authorize gameplay.
+Copy this prompt into a fresh Codex or Claude Code session after [setup prompt](SETUP_PROMPT.md) or [manual setup](docs/setup.md). Use the saved accepted Codex `tft` default approval. Global host permissions, per-tool overrides and Claude policies still apply. Setup alone does not authorize gameplay.
 
 ```text
 Play one complete TFT game through the connected tft MCP server. Use only

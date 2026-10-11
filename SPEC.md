@@ -1,21 +1,16 @@
-# TFTMuZeroMCP repository split contract
+# TFTSimulatorMCP project contract
 
-Accepted owner direction on 2026-10-11: move the MCP project to independent repository KyleDerZweite/TFTMuZeroMCP. The simulator remains silverlight6/TFTMuZeroAgent. Link both projects in README and project metadata and explain ownership.
+Accepted owner direction on 2026-10-11: name this independent MCP project TFTSimulatorMCP at KyleDerZweite/TFTSimulatorMCP, with distribution `tft-simulator-mcp`. Preserve the `tft_mcp` import, `tft-mcp` launcher and native `tft` server key. The original simulator remains [silverlight6/TFTMuZeroAgent](https://github.com/silverlight6/TFTMuZeroAgent), pinned to `33c2c6eb873da1aaf319dc0c36bcbec1ad20c48d`.
 
-The split contract was independently reviewed at clean checkpoint `7daa5c380a7d4c791dce091249d86be590a018db` on 2026-10-11 and is Ready. The implementation uses the independent layout below.
+The project owns root packaging, src/tft_mcp/, tests/, shared prompts and documentation. GameSession calls the unchanged installed simulator in the same Python process; native hosts connect through stdio MCP. This name does not imply MuZero training or model hosting. The rename changes metadata and documentation, preserving gameplay behavior, dependency versions, native settings, historical installations and logs.
 
-## Migration contract
+The canonical installation and native-host procedure is [docs/setup.md](docs/setup.md). Use a fresh external environment and an archived, noneditable selected full Git revision. Refuse an existing installation path. Both historical distributions `tft-mcp-server` and `tftmuzero-mcp` share the current import and launcher, so do not mix them in one environment.
 
-- Use normal Python src layout: root pyproject.toml, src/tft_mcp/, tests/, root README/SPEC/AGENTS/GLOSSARY/prompts and docs/tool-reference.md plus docs/verification.md. Name the distribution tftmuzero-mcp while preserving tft_mcp and tft-mcp compatibility.
-- Install unchanged tft-simulator as an external Git dependency pinned to 33c2c6eb873da1aaf319dc0c36bcbec1ad20c48d. Do not include Simulator files, UnitTests, training code or PoroSight. No submodule, remote simulator process, RPC or backend abstraction is required.
-- Native hosts speak stdio MCP to this server. GameSession calls the installed Simulator library in the same Python process. Existing transactions, RNG, baselines, schemas and legal behavior remain intact.
-- Read authoritative installed simulator commit metadata from direct_url.json when available. Never attribute the enclosing MCP checkout to simulator identity. Retain source digest and explicit archive revision hints when immutable metadata is unavailable. Record MCP and simulator revisions independently.
-- Remove the obsolete monorepo path checker and its four tests. Verify separation through wheel contents, import locations and installed SDK execution outside both checkouts. Adapt source-relative acceptance paths and provenance assertions.
-- Preserve filtered MCP Git history, Apache license and extraction source 7fff190eb83af3d837fb74abfbb8a6fe7c30d2aa. Reconcile all documentation and commands; prior results remain historical evidence.
-- Verify the complete migrated suite, fresh noneditable installation resolving the Git simulator dependency, pip consistency, 25 tools, lifecycle/error recovery and full-game replay. Add provenance regressions. Finish independent Standards and Spec review and fix findings.
-- Publish the verified new repository, withdraw obsolete upstream draft PR89, then remove current MCP files and MCP glossary from the simulator fork without core edits or history rewriting. Keep protected installations, host configuration, credentials and logs. Core changes and PoroSight additions remain separate work.
+## Completed repository split
 
-The gameplay contract below remains authoritative.
+The preceding TFTMuZeroMCP split contract was independently reviewed at clean checkpoint `7daa5c380a7d4c791dce091249d86be590a018db` on 2026-10-11. The project was extracted, published independently and removed from the simulator fork. Filtered MCP Git history, the Apache license and extraction source `7fff190eb83af3d837fb74abfbb8a6fe7c30d2aa` remain preserved. The obsolete monorepo path checker and its four tests were removed. Package separation uses wheel contents, installed imports and SDK execution outside both checkouts.
+
+[docs/verification.md](docs/verification.md) records the split's completed checks and limits. Its recorded revisions, historical installation paths and log references remain facts about that earlier name. Core changes and PoroSight additions remain separate work. The gameplay contract below remains authoritative.
 
 # MCP tools for the installed TFT simulator
 
@@ -41,13 +36,13 @@ The game-session adapter owns lifecycle, scheduling, action validation, coordina
 
 Rule-query tools read the installed simulator definitions. The server has no fixed set-number label, set guard, set selector or copied fixed catalog. Simulator identity records its actual environment metadata and source digest. Concrete support for mechanics already present in that simulator remains in the adapter. Rule queries do not use current live-game metadata or duplicate game rules. Responses clearly distinguish data available from the simulator from descriptions that the simulator does not supply.
 
-This independent repository owns root packaging, src/tft_mcp/, tests/ and documentation. It installs unchanged simulator code through the pinned external Git dependency. The tftmuzero-mcp distribution retains the tft_mcp import and tft-mcp launcher. Install in a fresh environment because the historical tft-mcp-server distribution shares those names. Simulator distribution versions alone do not identify source revisions. A future custom client requires its own accepted scope and contract.
+This independent repository owns root packaging, src/tft_mcp/, tests/ and documentation. It installs unchanged simulator code through the pinned external Git dependency. The tft-simulator-mcp distribution retains the tft_mcp import and tft-mcp launcher. Install in a fresh environment because the historical tft-mcp-server and tftmuzero-mcp distributions share those names. Simulator distribution versions alone do not identify source revisions. A future custom client requires its own accepted scope and contract.
 
 Keep implementation close to the existing Python style: ordinary functions, concrete classes where state is owned, straightforward snake_case names, and short explicit control flow. Use small typed records or dataclasses when they clarify an actual result or state shape. Beyond the MCP SDK needed for the accepted protocol, do not introduce a framework, dependency injection container, backend interface, plugin system, or generic action dispatcher for unrequested future use. Existing validation, failure atomicity, visibility, and determinism requirements remain mandatory.
 
 The MCP transport delegates to a concrete session adapter. Simulator-specific field access, scheduling, validation, projections, and recovery stay in that adapter. Static catalog helpers read existing definitions and are called through the adapter. Share coordinate conversion and request/result conventions where the existing tools need them; avoid scattered rule duplication. Extract additional internal modules only when they have a distinct existing responsibility. Imports point from extension to simulator, never from simulator to extension.
 
-Codex CLI and Claude Code are the intended existing MCP hosts. Their built-in MCP clients connect to the same local stdio server; no custom client application or model-provider adapter is needed. Deliver a single copyable setup prompt under SETUP_PROMPT.md with enough instructions for either host to install the server and register it using its existing native tools. The prompt refers to the verified revision and actual installation instructions rather than inventing commands. Include host-specific configuration examples, connection checks, removal instructions, and a separate playable-game prompt. No custom setup application is required.
+Codex CLI and Claude Code are the intended existing MCP hosts. Their built-in MCP clients connect to the same local stdio server; no custom client application or model-provider adapter is needed. Deliver a single copyable setup prompt under SETUP_PROMPT.md with enough instructions for either host to install the server and register it using its existing native tools. The prompt records the selected full Git revision and refers to the canonical installation instructions rather than inventing commands. Include host-specific configuration examples, connection checks, removal instructions, and a separate playable-game prompt. No custom setup application is required.
 
 Use the installed production launcher by absolute path and an explicit writable log destination; do not depend on launching from the repository or on an activated shell environment. Executing the copied setup prompt authorizes adding or updating the named TFT server entry in the operator's normal client configuration. Preserve unrelated settings and use existing authentication. Client configuration belongs to the operator and is not a new repository-root project file. Installation success, registration, an active MCP connection, and successful gameplay are separate evidence. If the host needs a new session to load the server, report that exact next step rather than claiming that registration proves connection.
 
@@ -59,7 +54,7 @@ For an existing entry, parse configuration in protected process memory and patch
 
 Use separate host/SDK logs. Required Codex full-game evidence uses the saved ordinary configuration, without a session-only approval override, custom client, provider adapter or server approval layer. Authenticated Claude connection/gameplay remains a separately reported target proof obligation.
 
-Verification uses local checks only. Do not add GitHub Actions as part of this migration. The existing root glossary remains the owner of domain vocabulary. If real simulator evidence demonstrates that a core change is unavoidable, record the limitation and proposed minimum change and obtain an explicit scope decision before altering the core.
+Verification uses local checks only. Do not add GitHub Actions as part of this project rename. The existing root glossary remains the owner of domain vocabulary. If real simulator evidence demonstrates that a core change is unavoidable, record the limitation and proposed minimum change and obtain an explicit scope decision before altering the core.
 
 The controlled player defaults to player_0. Board queries accept an optional player identifier; omission selects the controlled player. Player identifiers are distinct from board coordinates.
 
