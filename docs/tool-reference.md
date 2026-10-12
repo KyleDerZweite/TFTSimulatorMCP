@@ -29,12 +29,15 @@ The launcher re-executes Python with `PYTHONHASHSEED=0` before loading the SDK o
 
 Starting an active game returns `game_active` and preserves it. Closing a running game returns its ID, an outcome with `reason: "closed_incomplete"`, and idle status. Repeated close is harmless. Structured errors contain `code`, `message`, and `details`, with MCP `isError: true`. Codes include `invalid_input`, `game_active`, `no_game`, `game_terminal`, `budget_exhausted`, `log_unavailable` and `internal_error`. Malformed MCP request envelopes use native SDK protocol errors. Successful output schemas are validated before atomic audit replacement. Candidate gameplay, policies, RNG and native writes are published only after that commit. Native, internal and audit failures preserve the committed game and accepted logs; failed initialization leaves idle. Process restarts begin idle and do not resume old games.
 
+The default profile preserves explicit lifecycle and discovers 26 tools. The optional `TFT_MCP_PROFILE=compact` profile requires `TFT_MCP_SEED`, starts one game per process and discovers 16 tools. It returns a decision after actions and attempts graceful close on shutdown; forced host termination can bypass the close audit. See [the compact Codex guide](codex-play.md) for exact response differences and host setup.
+
 ## Tool index
 
 All arguments are JSON objects. Empty argument objects are `{}`; unknown keys and explicit null optional filters are rejected.
 
 | Tools | Arguments | Use |
 | --- | --- | --- |
+| `get_decision` | `{}` | One compact visible own-state snapshot |
 | `start_game` | `seed` integer | Start one game from idle |
 | `get_game_status`, `close_game`, `end_turn` | `{}` | Inspect lifecycle, close, or explicitly finish planning |
 | `get_board`, `get_traits` | Optional `player_id` string | Own or living opponent public data |
@@ -141,6 +144,24 @@ Every successful assignment returns exactly detached `item_slot`, original `item
 An installed observation limitation can still reject an otherwise legal native item operation. `ObservationToken` asserts inventory IDs below 58, so a remaining special consumable can make its post-action inventory update fail. The server returns atomic `internal_error` and retains the committed state. It does not change the simulator encoder or remove unrelated consumables. Native duplicator updates can also leave incremental observation and action-mask caches different from a freshly reconstructed encoder. Receipts and legality use actual owned state; equipment preserves the native update path.
 
 ## Developer checks
+
+### Module layout
+
+The concrete adapter keeps native ownership in GameSession and shares action/inspection knowledge through ordinary functions. Protocol code contains no game-rule logic.
+
+| Files | Responsibility |
+| --- | --- |
+| [transport.py](../src/tft_mcp/transport.py) | Validate process configuration, start the compact game, register SDK callbacks and run/close the selected session over SDK streams. |
+| [tool_schemas.py](../src/tft_mcp/tool_schemas.py), [tools.py](../src/tft_mcp/tools.py) | Define shared strict record schemas and ordered concrete tool declarations for both profiles. |
+| [tool_calls.py](../src/tft_mcp/tool_calls.py) | Serialize each request, validate input, select the concrete session method, project/validate output and record success or failure. |
+| [session.py](../src/tft_mcp/session.py) | Own lifecycle, native scope, RNG isolation, transactions, baseline scheduling, visibility and retained terminal state. |
+| [purchase.py](../src/tft_mcp/purchase.py) | Validate native purchase/sale contracts, inventory consequences and postconditions. |
+| [state.py](../src/tft_mcp/state.py) | Freeze visible values and share full category/compact slot, shop, inventory and trait projections. |
+| [action_helpers.py](../src/tft_mcp/action_helpers.py), [movement.py](../src/tft_mcp/movement.py), [equipment.py](../src/tft_mcp/equipment.py) | Share canonical locations, native pricing, merge/copy accounting and concrete movement/equipment contracts. |
+
+`transport.run_session` is the SDK test seam. Memory-stream fixtures pass a preconfigured real GameSession to the same registration and call path as production; they do not patch a constructor or use another simulator provider. The stream run closes that session on exit. Production `serve` validates the environment and owns construction/compact startup. The protocol call lock remains outside the session's copied state. Receipt deltas and the own-state freeze retain the established session-level fault-injection seams.
+
+### Checkout and installed checks
 
 Run from the selected checkout. Create a fresh external developer environment first; choose an unused absolute path and do not reuse an environment containing the historical packages:
 

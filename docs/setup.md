@@ -1,6 +1,6 @@
 # Install and connect TFTSimulatorMCP
 
-Use [SETUP_PROMPT.md](../SETUP_PROMPT.md) for agent-assisted setup, or follow this manual procedure. Setup checks idle tools without starting a game. Gameplay uses the separate [GAME_PROMPT.md](../GAME_PROMPT.md).
+Use [SETUP_PROMPT.md](../SETUP_PROMPT.md) for agent-assisted setup, or follow this manual procedure. Setup checks idle tools without starting a game. Gameplay uses the separate [DEFAULT_GAME_PROMPT.md](../DEFAULT_GAME_PROMPT.md).
 
 ## Install a pinned revision
 
@@ -42,10 +42,10 @@ sha256sum "$TFT_INSTALL/source.tar" | tee "$TFT_INSTALL/source.sha256"
 cd "$TFT_INSTALL/host"
 env -u APPIMAGE -u PYTHONPATH "$TFT_INSTALL/venv/bin/python" -c 'import sys, Simulator, tft_mcp; from importlib.metadata import version; print(sys.executable, Simulator.__file__, tft_mcp.__file__); print({n:version(n) for n in ("tft-simulator","tft-simulator-mcp","numpy","PettingZoo","gymnasium","mcp")})'
 TFT_CHECK_DIR="$(mktemp -d "$TFT_INSTALL/logs/sdk/check-XXXXXX")"
-env -u APPIMAGE -u PYTHONPATH TFT_MCP_TEST_COMMAND="$TFT_INSTALL/venv/bin/tft-mcp" "$TFT_INSTALL/venv/bin/python" -m pytest -c "$TFT_INSTALL/source/pyproject.toml" "$TFT_INSTALL/source/tests/test_protocol.py" -k production_discovery_and_idle -q --basetemp="$TFT_CHECK_DIR/protocol"
+env -u APPIMAGE -u PYTHONPATH TFT_MCP_PROFILE=default TFT_MCP_TEST_COMMAND="$TFT_INSTALL/venv/bin/tft-mcp" "$TFT_INSTALL/venv/bin/python" -m pytest -c "$TFT_INSTALL/source/pyproject.toml" "$TFT_INSTALL/source/tests/test_protocol.py" -k production_discovery_and_idle -q --basetemp="$TFT_CHECK_DIR/protocol"
 ```
 
-Imports must resolve inside the new venv. The idle SDK check launches the installed server outside both checkouts and verifies exactly 25 tools without starting a game. For installation acceptance that includes test games, use `-k 'not full_lobby and not invalid_output'` instead. The `invalid_output` fixture uses checkout source and belongs to developer checks.
+Imports must resolve inside the new venv. The idle SDK check launches the installed server outside both checkouts and verifies exactly 26 default-profile tools without starting a game. For installation acceptance that includes test games, use `-k 'not full_lobby and not invalid_output'` instead. The `invalid_output` fixture uses checkout source and belongs to developer checks.
 
 Use a new `TFT_CHECK_DIR` for every run because pytest clears its basetemp directory. Record the MCP revision/archive checksum and simulator commit/source digest separately. Installed simulator `direct_url.json` commit metadata overrides conflicting environment hints. Archive installs may retain an explicit `TFT_MCP_SIMULATOR_REVISION` hint; every install records the actual source SHA-256. Package versions alone do not identify source content.
 
@@ -81,7 +81,7 @@ Open a fresh native session and request an actual `tft.get_game_status` call. Re
 
 ## Play and verify
 
-Supply the text block from [GAME_PROMPT.md](../GAME_PROMPT.md) to a fresh native session. Reads do not consume budget or randomness. Individual actions consume one of 14 planning slots and interleave baseline decisions. Explicit `end_turn` starts combat and finishes the remaining lobby after controlled elimination. Terminal own categories retain the controlled snapshot; `get_round` reports the final lobby round and `get_players` reports all eight placements.
+Supply the text block from [DEFAULT_GAME_PROMPT.md](../DEFAULT_GAME_PROMPT.md) to a fresh native session. Reads do not consume budget or randomness. Individual actions consume one of 14 planning slots and interleave baseline decisions. Explicit `end_turn` starts combat and finishes the remaining lobby after controlled elimination. Terminal own categories retain the controlled snapshot; `get_round` reports the final lobby round and `get_players` reports all eight placements.
 
 Board coordinates are x=0..6 left to right and y=0..3 bottom to top. Bench slots are 0..8, shop slots 0..4 and loose inventory slots 0..9. Rules come from installed simulator definitions. See the [server reference](tool-reference.md) for opponent privacy, action schemas and unsupported native cases.
 

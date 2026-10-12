@@ -19,6 +19,18 @@ A player's reserve units that are not positioned on the board.
 **Shop**:
 The champion offers currently available for purchase by a player.
 
+**Purchase**:
+The acquisition of a champion offer from the shop in exchange for gold. The acquired copy may merge with matching owned copies.
+
+**Sale**:
+The exchange of an owned unit for gold.
+
+**Merge**:
+The combination of matching champion copies into a higher-star unit.
+
+**Own-state snapshot**:
+The controlled player's visible board, bench, shop, inventory, economy and traits at one point in play. After player elimination, this can describe their final own state while the remaining lobby continues.
+
 **Planning phase**:
 The part of a round in which a player purchases, sells, positions units, and assigns items before combat.
 

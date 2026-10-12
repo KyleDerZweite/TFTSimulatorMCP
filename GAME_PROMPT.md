@@ -1,37 +1,37 @@
-# Play a complete game with TFTSimulatorMCP
+# Compact Codex TFT play
 
-Copy this prompt into a fresh Codex or Claude Code session after [setup prompt](SETUP_PROMPT.md) or [manual setup](docs/setup.md). Use the saved accepted Codex `tft` default approval. Global host permissions, per-tool overrides and Claude policies still apply. Setup alone does not authorize gameplay.
+Use after configuring the compact `tft` server with an explicit seed. Setup alone does not authorize gameplay. Select `gpt-6-luna` in the native Codex harness, then copy this prompt into a fresh session. The default profile uses [DEFAULT_GAME_PROMPT.md](DEFAULT_GAME_PROMPT.md).
 
 ```text
-Play one complete TFT game through the connected tft MCP server. Use only
-individual native MCP tools for gameplay with ordinary saved configuration.
-Do not supply a session-only approval override, shell, SDK action loop,
-custom client or scripted action tape. First call get_game_status and confirm
-idle. Start with start_game {"seed":0}. Record the returned game_id.
+Play one complete game using only individual tools from the connected tft MCP
+server. The compact server already started one seeded game. First call
+get_decision. Use its actual state and the decision returned after each action.
+Do not use shell, a script or a custom client for gameplay.
 
-Inspect shop, economy, bench, board and items as needed. Choose your own legal
-purchases, positioning and equipment. Use buy_unit and move_unit at least once
-when legal; equip a naturally available item when supported, or make another
-legal individual choice. Keep each round to a few useful actions. Board x is
-0..6 left to right, y is 0..3 bottom to top. Bench is 0..8, shop 0..4 and items
-0..9. There are 14 planning actions; reads are free. Inspect tool schemas for
-exact argument names. Rejected actions preserve state and budget.
+You control player_0 against seven existing simulator baselines. Buy affordable
+useful champions, deploy units up to economy.max_units, position them and equip
+compatible items. Use buy_unit and move_unit when legal. Group units by their
+installed traits and use focused rule tools when needed. Do not assume current
+live TFT rules or MetaTFT builds. Choose your own strategy.
 
-Explicitly call end_turn after your choices each round. Continue through
-controlled elimination until get_game_status reports state terminal,
-outcome.lobby_complete true and controlled_placement between 1 and 8.
-Use at most 40 end_turn calls. If a real error prevents completion, report
-its exact result and preserve the evidence; never claim a completed game.
+Board x=0..6 left to right, y=0..3 bottom to top. Bench slots are 0..8, shop
+0..4 and items 0..9. Locations are JSON objects, for example
+{"kind":"board","x":3,"y":0} or {"kind":"bench","slot":0}.
+Empty owned slots are omitted. Shop purchase_cost includes Chosen pricing.
+next_level_cost is the total native XP threshold; exp is current XP.
 
-At terminal, call get_players and verify all eight placements, then inspect
-get_board, get_bench, get_shop, get_items, get_economy, get_traits and get_round.
-Own categories retain the controlled elimination or winning snapshot; final
-get_round can be later. Save the completed outcome. Call close_game and verify
-its outcome matches and its status is idle. Call get_game_status to confirm.
+Information calls and rejected actions are free. There are 14 planning actions
+per round. Spend only on useful actions, use the latest returned decision and
+call end_turn explicitly to run combat and receive the next decision. With zero
+gold and no useful legal action, end_turn immediately. Do not start or close
+this process-owned game. Continue until status.state is terminal and
+status.outcome.lobby_complete is true. Use at most 40 end_turn calls. If an error
+or a limit prevents completion, report it and retain the partial evidence.
 
-Report the native model/session identity when available, seed, game_id,
-controlled placement, all eight placements, terminal inspections and matching
-close receipt. Record installed source revisions, configuration and audit/native
-log references supplied by setup. Actual tool results and logs are evidence;
-do not invent revisions or paths missing from your session.
+At terminal, call get_players to verify all eight placements. Call get_decision
+again to confirm stable terminal state. snapshot_round is the retained own
+round; status.round is the completed lobby round. Report the seed, game_id,
+model/session identity, controlled placement, all eight placements and any
+errors. Include source revisions and log paths only when supplied by setup.
+The server closes automatically when the native session ends.
 ```

@@ -91,7 +91,7 @@ def test_identical_visible_board_swap_consumes_action_without_delta(tmp_path):
 @pytest.mark.anyio
 async def test_production_sdk_movement_discovery_and_natural_journey(tmp_path):
     from support import client
-    from tft_mcp.transport import LOCATION_SCHEMA, UNIT_CHANGE_SCHEMA, STATUS_SCHEMA
+    from tft_mcp.tool_schemas import LOCATION_SCHEMA, UNIT_CHANGE_SCHEMA, STATUS_SCHEMA
     async with client(tmp_path) as sdk:
         tools = {tool.name: tool for tool in (await sdk.list_tools()).tools}
         assert tools['move_unit'].inputSchema['additionalProperties'] is False
@@ -413,7 +413,7 @@ async def test_sdk_memory_rare_real_azir_fixture_and_atomic_guard_rejection(tmp_
     from support import gameplay_with_numpy as gameplay
     session = session_fixture(tmp_path)
     install_units(session, [(0, 'azir', 1, [])])
-    async with memory_client(session, monkeypatch) as sdk:
+    async with memory_client(session) as sdk:
         entered = await sdk.call_tool('move_unit', {'source': bench(0), 'target': board(3, 2)})
         assert not entered.isError
         guards = [c['location'] for c in entered.structuredContent['unit_changes'] if c['after'] and c['after']['champion'] == 'sandguard']

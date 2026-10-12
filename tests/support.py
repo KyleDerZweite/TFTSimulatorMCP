@@ -24,7 +24,7 @@ INSPECTION_TOOLS = ('get_board', 'get_bench', 'get_shop', 'get_items', 'get_econ
 async def client(tmp_path, **environment):
     env = dict(os.environ)
     env.pop("APPIMAGE", None)
-    env.update({"TFT_MCP_AUDIT_PATH": str(tmp_path / "audit.jsonl"),
+    env.update({"TFT_MCP_PROFILE": "default", "TFT_MCP_AUDIT_PATH": str(tmp_path / "audit.jsonl"),
                 "TFT_MCP_NATIVE_LOG_DIR": str(tmp_path / "native")})
     env.update(environment)
     command = os.environ.get("TFT_MCP_TEST_COMMAND")
@@ -144,25 +144,20 @@ def gameplay_with_numpy(session):
 
 
 @asynccontextmanager
-async def memory_client(session, monkeypatch):
-    """Exercise the unchanged transport with a preconfigured real GameSession."""
+async def memory_client(session):
+    """Exercise production SDK registration with a preconfigured real session."""
     import tft_mcp.transport as transport
 
-    with monkeypatch.context() as patch:
-        patch.setattr(transport, 'GameSession', lambda *args: session)
-        async with create_client_server_memory_streams() as (client_streams, server_streams):
-            @asynccontextmanager
-            async def streams():
-                yield server_streams
-            patch.setattr(transport, 'stdio_server', streams)
-            async with anyio.create_task_group() as tasks:
-                tasks.start_soon(transport.serve)
-                try:
-                    async with ClientSession(*client_streams) as sdk:
-                        await sdk.initialize()
-                        yield sdk
-                finally:
-                    tasks.cancel_scope.cancel()
+    profile, _ = transport.profile_configuration(os.environ)
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        async with anyio.create_task_group() as tasks:
+            tasks.start_soon(transport.run_session, session, profile, *server_streams)
+            try:
+                async with ClientSession(*client_streams) as sdk:
+                    await sdk.initialize()
+                    yield sdk
+            finally:
+                tasks.cancel_scope.cancel()
 
 
 def simulator_bindings():

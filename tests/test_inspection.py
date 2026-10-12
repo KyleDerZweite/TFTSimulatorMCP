@@ -42,7 +42,7 @@ def test_native_special_units_use_container_locations_and_detached_allowlist(tmp
     assert azir.sandguard_overlord_coordinates == [(6, 1)]
     import json
     from jsonschema import validate
-    from tft_mcp.transport import TOOLS
+    from tft_mcp.tools import TOOLS
     schemas = {tool.name: tool.outputSchema for tool in TOOLS}
     for name in INSPECTION_TOOLS:
         validate(json.loads(json.dumps(getattr(session, name)())), schemas[name])

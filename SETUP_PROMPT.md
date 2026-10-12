@@ -1,6 +1,6 @@
 # Set up TFTSimulatorMCP
 
-Copy this prompt into Codex CLI or Claude Code with the repository checkout available. It authorizes installation and configuration of the named `tft` entry. Use [GAME_PROMPT.md](GAME_PROMPT.md) separately for gameplay.
+Copy this prompt into Codex CLI or Claude Code with the repository checkout available. It authorizes installation and configuration of the named `tft` entry. Use [DEFAULT_GAME_PROMPT.md](DEFAULT_GAME_PROMPT.md) separately for gameplay.
 
 ```text
 Install the TFT MCP server from the repository containing this prompt and
@@ -23,7 +23,8 @@ Use absolute installed launcher paths and protected writable logs. Remove
 APPIMAGE from Python/server child environments on affected hosts. Run pip check,
 check installed import paths and use the documented SDK selector
 -k production_discovery_and_idle from outside the checkout without PYTHONPATH.
-Verify exactly 25 tools and idle status. Do not start test games during setup.
+Select TFT_MCP_PROFILE=default for the check regardless of inherited shell fields.
+Verify exactly 26 default-profile tools and idle status. Do not start test games during setup.
 
 Inspect the named tft entry before registration, including repeated setup. For
 Claude, inspect from the original registered project directory before changing
@@ -51,5 +52,5 @@ on repeated setup.
 
 Report MCP revision and simulator revision separately, package versions, source digest, interpreter/launcher
 paths, log locations, host version, configuration preservation and checks that
-passed or remain open. Provide GAME_PROMPT.md and the removal commands.
+passed or remain open. Provide DEFAULT_GAME_PROMPT.md and the removal commands.
 ```

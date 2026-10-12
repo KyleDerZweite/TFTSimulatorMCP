@@ -10,7 +10,7 @@ from support import client
 
 ACTIONS = {'buy_unit', 'sell_unit', 'move_unit', 'equip_item', 'refresh_shop', 'buy_xp', 'end_turn'}
 READS = ('get_game_status', 'get_board', 'get_bench', 'get_shop', 'get_items',
-         'get_economy', 'get_traits', 'get_round', 'get_players')
+         'get_economy', 'get_traits', 'get_round', 'get_players', 'get_decision')
 CATALOGS = {'search_champions', 'get_champion', 'search_traits', 'get_trait',
             'get_trait_champions', 'search_items', 'get_item'}
 TOOLS = ACTIONS | set(READS) | CATALOGS | {'start_game', 'close_game'}
@@ -130,7 +130,11 @@ async def checkpoint(sdk, transcript, order=READS):
     status = result['get_game_status']
     assert status['state'] in {'running', 'terminal'}
     for name in READS[1:]:
-        assert result[name]['game_id'] == status['game_id']
+        if name == 'get_decision':
+            assert result[name]['status'] == status
+            assert result[name]['snapshot_round'] == result['get_board']['round']
+        else:
+            assert result[name]['game_id'] == status['game_id']
     for name in ('get_board', 'get_bench', 'get_shop', 'get_items', 'get_economy', 'get_traits'):
         assert result[name]['player_id'] == 'player_0'
     assert len(result['get_board']['slots']) == 28

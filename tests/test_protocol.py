@@ -11,9 +11,9 @@ import pytest
 async def test_production_discovery_and_idle(tmp_path):
     async with client(tmp_path) as session:
         tools = (await session.list_tools()).tools
-        assert len(tools) == 25
+        assert len(tools) == 26
         assert {tool.name for tool in tools} == {
-            "start_game", "get_game_status", "close_game", "end_turn",
+            "get_decision", "start_game", "get_game_status", "close_game", "end_turn",
             "search_champions", "get_champion", "search_traits", "get_trait",
             "get_trait_champions", "search_items", "get_item", "get_board",
             "get_bench", "get_shop", "get_items", "get_economy", "get_traits",
@@ -142,7 +142,7 @@ async def test_invalid_output_rolls_back_before_sdk_error(tmp_path, monkeypatch,
     if tool != 'start_game':
         real_session.start_game(0)
         real_session.game.player_manager.player_states['player_0'].gold = 100
-    async with memory_client(real_session, monkeypatch) as sdk:
+    async with memory_client(real_session) as sdk:
         status = (await sdk.call_tool('get_game_status')).structuredContent
         committed = real_session.game
         graph = pickle.dumps(committed)

@@ -6,7 +6,7 @@ from support import bench, board
 
 @pytest.mark.anyio
 async def test_stdio_equipment_discovery_strict_schema_and_natural_item(tmp_path):
-    from tft_mcp.transport import LOCATION_SCHEMA, UNIT_CHANGE_SCHEMA, ITEM_CHANGE_SCHEMA, STATUS_SCHEMA
+    from tft_mcp.tool_schemas import LOCATION_SCHEMA, UNIT_CHANGE_SCHEMA, ITEM_CHANGE_SCHEMA, STATUS_SCHEMA
     async with client(tmp_path) as sdk:
         tools = {t.name: t for t in (await sdk.list_tools()).tools}
         tool = tools['equip_item']
@@ -63,7 +63,7 @@ async def test_sdk_memory_rare_equipment_native_fixture(tmp_path, monkeypatch, i
     player = install_units(session, **({'board': [((6, 3), 'kayn', 1, equipment)]} if is_kayn else {'bench': [(8, 'garen', 1, equipment)]}))
     player.item_bench = [item] + [None] * 9
     target = board(6, 3) if is_kayn else bench(8)
-    async with memory_client(session, monkeypatch) as sdk:
+    async with memory_client(session) as sdk:
         result = await sdk.call_tool('equip_item', {'item_slot': 0, 'target': target})
         assert not result.isError, result.structuredContent
         receipt = result.structuredContent
@@ -144,7 +144,7 @@ async def test_sdk_impossible_native_stars_reject_before_output_publication(tmp_
     player.item_bench = ['bf_sword'] + [None] * 9
     before = pickle.dumps(session.game)
     status = session.get_game_status()
-    async with memory_client(session, monkeypatch) as sdk:
+    async with memory_client(session) as sdk:
         result = await sdk.call_tool('equip_item', {'item_slot': 0, 'target': bench(0)})
         assert result.isError
         assert pickle.dumps(session.game) == before

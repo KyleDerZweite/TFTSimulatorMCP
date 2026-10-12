@@ -42,7 +42,7 @@ def test_xp_uses_recursive_native_progression_and_preserves_bonus_capacity(tmp_p
 @pytest.mark.anyio
 async def test_production_shop_xp_discovery_strict_requests_and_earned_gold(tmp_path):
     from support import client
-    from tft_mcp.transport import EMPTY_INPUT, SHOP_PROPERTIES, STATUS_SCHEMA
+    from tft_mcp.tool_schemas import EMPTY_INPUT, SHOP_PROPERTIES, STATUS_SCHEMA
     async with client(tmp_path) as sdk:
         tools = {tool.name: tool for tool in (await sdk.list_tools()).tools}
         for name in ('refresh_shop', 'buy_xp'):
@@ -174,7 +174,7 @@ async def test_sdk_memory_real_session_cap_success_and_atomic_rejection(tmp_path
     player.level = player.max_level - 1
     player.exp = player.level_costs[player.level] - 1
     player.max_units += 2
-    async with memory_client(session, monkeypatch) as sdk:
+    async with memory_client(session) as sdk:
         result = await sdk.call_tool('buy_xp')
         assert not result.isError
         receipt = result.structuredContent

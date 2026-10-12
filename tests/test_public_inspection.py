@@ -9,7 +9,7 @@ import pytest
 
 from support import started_session as started
 from tft_mcp.session import SessionError
-from tft_mcp.transport import TOOLS
+from tft_mcp.tools import TOOLS
 
 
 def test_public_projection_uses_keys_and_excludes_nested_private_state(tmp_path):
