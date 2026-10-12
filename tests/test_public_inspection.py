@@ -7,9 +7,9 @@ from jsonschema import validate, ValidationError
 import numpy as np
 import pytest
 
-from support import started_session as started
+from support import started_session as started, native_inspection_schemas
 from tft_mcp.session import SessionError
-from tft_mcp.transport import TOOLS
+from tft_mcp.tools import TOOLS
 
 
 def test_public_projection_uses_keys_and_excludes_nested_private_state(tmp_path):
@@ -41,7 +41,7 @@ def test_public_projection_uses_keys_and_excludes_nested_private_state(tmp_path)
     players = session.get_players()
     assert players['players'][1] == {'player_id': 'player_1', 'controlled': False,
         'status': 'alive', 'health': 100, 'level': 1, 'placement': None}
-    schemas = {tool.name: tool.outputSchema for tool in TOOLS}
+    schemas = {**native_inspection_schemas(), **{tool.name: tool.outputSchema for tool in TOOLS}}
     for name, result in [('get_board', board), ('get_traits', traits), ('get_players', players)]:
         encoded = json.loads(json.dumps(result))
         validate(encoded, schemas[name])

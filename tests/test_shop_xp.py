@@ -42,33 +42,32 @@ def test_xp_uses_recursive_native_progression_and_preserves_bonus_capacity(tmp_p
 @pytest.mark.anyio
 async def test_production_shop_xp_discovery_strict_requests_and_earned_gold(tmp_path):
     from support import client
-    from tft_mcp.transport import EMPTY_INPUT, SHOP_PROPERTIES, STATUS_SCHEMA
+    from tft_mcp.tool_schemas import EMPTY_INPUT, SHOP_PROPERTIES, STATUS_SCHEMA
     async with client(tmp_path) as sdk:
         tools = {tool.name: tool for tool in (await sdk.list_tools()).tools}
         for name in ('refresh_shop', 'buy_xp'):
             assert tools[name].inputSchema == EMPTY_INPUT
             assert tools[name].outputSchema['additionalProperties'] is False
-            assert tools[name].outputSchema['properties']['status'] == STATUS_SCHEMA
-            assert (await sdk.call_tool(name)).structuredContent['code'] == 'no_game'
+            assert tools[name].outputSchema['properties']['receipt']['properties']['status'] == STATUS_SCHEMA
+            assert set(tools[name].outputSchema['required']) == {'receipt', 'decision'}
             assert (await sdk.call_tool(name, {'player_id': 'player_0'})).structuredContent['code'] == 'invalid_input'
-        assert tools['refresh_shop'].outputSchema['properties']['slots'] == SHOP_PROPERTIES['slots']
-        assert set(tools['buy_xp'].outputSchema['required']) == {'gold_spent', 'xp_before', 'xp', 'level_before', 'level', 'unit_capacity', 'status'}
-        await sdk.call_tool('start_game', {'seed': 0})
+        assert tools['refresh_shop'].outputSchema['properties']['receipt']['properties']['slots'] == SHOP_PROPERTIES['slots']
+        assert set(tools['buy_xp'].outputSchema['properties']['receipt']['required']) == {'gold_spent', 'xp_before', 'xp', 'level_before', 'level', 'unit_capacity', 'status'}
         for _ in range(3):
             assert not (await sdk.call_tool('end_turn')).isError
-        before = (await sdk.call_tool('get_economy')).structuredContent
+        before = (await sdk.call_tool('get_decision')).structuredContent
         refreshed = await sdk.call_tool('refresh_shop')
         assert not refreshed.isError, refreshed.structuredContent
-        assert refreshed.structuredContent['slots'] == (await sdk.call_tool('get_shop')).structuredContent['slots']
+        assert refreshed.structuredContent['receipt']['slots'] == (await sdk.call_tool('get_decision')).structuredContent['shop']
         xp = await sdk.call_tool('buy_xp')
         assert not xp.isError, xp.structuredContent
-        receipt = xp.structuredContent
+        receipt = xp.structuredContent['receipt']
         assert receipt['level'] > receipt['level_before']
-        after = (await sdk.call_tool('get_economy')).structuredContent
-        assert before['gold'] - after['gold'] == receipt['gold_spent'] + refreshed.structuredContent['gold_spent']
-        assert after['round'] == before['round']
-        assert after['planning_budget']['remaining'] == 12
-        await sdk.call_tool('close_game')
+        after = (await sdk.call_tool('get_decision')).structuredContent
+        assert xp.structuredContent['decision'] == after
+        assert before['economy']['gold'] - after['economy']['gold'] == receipt['gold_spent'] + refreshed.structuredContent['receipt']['gold_spent']
+        assert after['status']['round'] == before['status']['round']
+        assert after['status']['planning_budget']['remaining'] == 12
 
 
 @pytest.mark.parametrize('failure', ['native_action', 'observation', 'baseline', 'corrupt', 'noop', 'postcondition', 'native', 'audit'])
@@ -174,10 +173,11 @@ async def test_sdk_memory_real_session_cap_success_and_atomic_rejection(tmp_path
     player.level = player.max_level - 1
     player.exp = player.level_costs[player.level] - 1
     player.max_units += 2
-    async with memory_client(session, monkeypatch) as sdk:
+    async with memory_client(session) as sdk:
         result = await sdk.call_tool('buy_xp')
         assert not result.isError
-        receipt = result.structuredContent
+        receipt = result.structuredContent['receipt']
+        assert result.structuredContent['decision'] == (await sdk.call_tool('get_decision')).structuredContent
         assert receipt['level'] == player.max_level and receipt['xp'] == 0
         assert receipt['unit_capacity'] == 4
         before = gameplay(session)
@@ -186,7 +186,6 @@ async def test_sdk_memory_real_session_cap_success_and_atomic_rejection(tmp_path
         assert error.isError and error.structuredContent['code'] == 'level_cap'
         assert error.structuredContent['details']['max_level'] == player.max_level
         assert gameplay(session) == before and session.get_game_status() == budget
-        await sdk.call_tool('close_game')
 
 
 @pytest.mark.anyio
@@ -198,26 +197,27 @@ async def test_production_refresh_replay_ignores_extra_reads_and_rejections(tmp_
         path = tmp_path / str(extra)
         path.mkdir()
         async with client(path) as sdk:
-            await sdk.call_tool('start_game', {'seed': 0})
             for _ in range(3):
                 await sdk.call_tool('end_turn')
             receipts = []
             for action in ('refresh_shop', 'buy_xp', 'refresh_shop'):
                 if extra:
-                    for name in ('get_shop', 'get_items', 'search_items', 'get_economy', 'get_board', 'search_champions', 'get_bench', 'get_traits', 'get_round'):
+                    for name in ('get_decision', 'search_items', 'get_board', 'search_champions', 'get_decision'):
                         assert not (await sdk.call_tool(name)).isError
                     assert (await sdk.call_tool(action, {'extra': True})).isError
                 result = await sdk.call_tool(action)
                 assert not result.isError, result.structuredContent
-                data = result.structuredContent
+                data = result.structuredContent['receipt']
                 data['status'].pop('game_id')
                 receipts.append(data)
             state = []
-            for name in ('get_shop', 'get_economy', 'get_board', 'get_bench', 'get_items'):
+            for name in ('get_decision', 'get_board'):
                 data = (await sdk.call_tool(name)).structuredContent
-                data.pop('game_id')
+                if 'status' in data:
+                    data['status'].pop('game_id')
+                else:
+                    data.pop('game_id')
                 state.append(data)
-            await sdk.call_tool('close_game')
         events = [json.loads(line) for line in (path / 'audit.jsonl').read_text().splitlines()]
         progress = [{key: event[key] for key in ('player_id', 'round', 'kind', 'action', 'placements')}
                     for event in events if event['event'] == 'progression']
@@ -272,11 +272,10 @@ def test_native_thresholds_determine_progression_without_adapter_constants(tmp_p
 async def test_production_shop_xp_audit_failure_recovers_without_gameplay_change(tmp_path):
     from support import client
     async with client(tmp_path) as sdk:
-        await sdk.call_tool('start_game', {'seed': 0})
         for _ in range(3):
             await sdk.call_tool('end_turn')
         for name in ('refresh_shop', 'buy_xp'):
-            before = [(await sdk.call_tool(read)).structuredContent for read in ('get_game_status', 'get_economy', 'get_shop')]
+            before = [(await sdk.call_tool(read)).structuredContent for read in ('get_decision',)]
             audit = tmp_path / 'audit.jsonl'
             saved = audit.read_bytes()
             audit.unlink()
@@ -285,6 +284,5 @@ async def test_production_shop_xp_audit_failure_recovers_without_gameplay_change
             assert rejected.isError and rejected.structuredContent['code'] == 'log_unavailable'
             audit.rmdir()
             audit.write_bytes(saved)
-            assert [(await sdk.call_tool(read)).structuredContent for read in ('get_game_status', 'get_economy', 'get_shop')] == before
+            assert [(await sdk.call_tool(read)).structuredContent for read in ('get_decision',)] == before
             assert not (await sdk.call_tool(name)).isError
-        await sdk.call_tool('close_game')

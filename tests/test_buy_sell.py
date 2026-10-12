@@ -4,6 +4,30 @@ from tft_mcp.session import SessionError
 from support import install_units, session_fixture
 
 
+@pytest.mark.parametrize('field,value,error_code', [
+    ('target_dummy', True, 'unsupported_action'),
+    ('cost', 2, 'internal_error'),
+])
+def test_shop_prices_remain_visible_without_action_only_restrictions(tmp_path, field, value, error_code):
+    from Simulator.game.pool_stats import cost_star_values
+    from support import capture_committed_state, assert_committed_state_unchanged
+
+    session = session_fixture(tmp_path)
+    player = install_units(session, offer='garen')
+    unit = player.shop_champions[0]
+    setattr(unit, field, value)
+    before = capture_committed_state(session)
+    offer = session.get_shop()['slots'][0]
+    assert offer['unit'][field] == value
+    assert offer['purchase_cost'] == cost_star_values[unit.cost - 1][unit.stars - 1]
+    assert session.get_decision()['shop'][0] == offer
+    assert_committed_state_unchanged(session, before)
+    with pytest.raises(SessionError) as error:
+        session.buy_unit(shop_slot=0)
+    assert error.value.code == error_code
+    assert_committed_state_unchanged(session, before)
+
+
 def test_buy_then_sell_returns_detached_units_and_one_budget_slot(tmp_path):
     session = session_fixture(tmp_path)
     offer = session.get_shop()['slots'][0]

@@ -91,32 +91,32 @@ def test_identical_visible_board_swap_consumes_action_without_delta(tmp_path):
 @pytest.mark.anyio
 async def test_production_sdk_movement_discovery_and_natural_journey(tmp_path):
     from support import client
-    from tft_mcp.transport import LOCATION_SCHEMA, UNIT_CHANGE_SCHEMA, STATUS_SCHEMA
+    from tft_mcp.tool_schemas import LOCATION_SCHEMA, UNIT_CHANGE_SCHEMA, STATUS_SCHEMA
     async with client(tmp_path) as sdk:
         tools = {tool.name: tool for tool in (await sdk.list_tools()).tools}
+        assert set(tools['move_unit'].outputSchema['required']) == {'receipt', 'decision'}
         assert tools['move_unit'].inputSchema['additionalProperties'] is False
         assert tools['move_unit'].inputSchema['properties'] == {'source': LOCATION_SCHEMA, 'target': LOCATION_SCHEMA}
-        assert tools['move_unit'].outputSchema['properties']['unit_changes']['items'] == UNIT_CHANGE_SCHEMA
-        assert tools['move_unit'].outputSchema['properties']['status'] == STATUS_SCHEMA
+        assert tools['move_unit'].outputSchema['properties']['receipt']['properties']['unit_changes']['items'] == UNIT_CHANGE_SCHEMA
+        assert tools['move_unit'].outputSchema['properties']['receipt']['properties']['status'] == STATUS_SCHEMA
         assert set(tools['move_unit'].inputSchema['required']) == {'source', 'target'}
-        assert set(tools['move_unit'].outputSchema['required']) == {'source', 'target', 'unit_changes', 'status'}
-        assert (await sdk.call_tool('move_unit', {'source': bench(0), 'target': board(0, 0)})).structuredContent['code'] == 'no_game'
-        await sdk.call_tool('start_game', {'seed': 0})
+        assert set(tools['move_unit'].outputSchema['properties']['receipt']['required']) == {'source', 'target', 'unit_changes', 'status'}
+        assert (await sdk.call_tool('move_unit', {'source': bench(0), 'target': board(0, 0)})).structuredContent['code'] == 'empty_slot'
         await sdk.call_tool('end_turn')
-        offers = (await sdk.call_tool('get_shop')).structuredContent['slots']
-        gold = (await sdk.call_tool('get_economy')).structuredContent['gold']
+        offers = (await sdk.call_tool('get_decision')).structuredContent['shop']
+        gold = (await sdk.call_tool('get_decision')).structuredContent['economy']['gold']
         slot = next(o['slot'] for o in offers if o['purchase_cost'] <= gold)
         bought = await sdk.call_tool('buy_unit', {'shop_slot': slot})
         assert not bought.isError
-        origin = next(c['location'] for c in bought.structuredContent['unit_changes'] if c['after'])
+        origin = next(c['location'] for c in bought.structuredContent['receipt']['unit_changes'] if c['after'])
         for source, target in [(origin, board(6, 3)), (board(6, 3), board(0, 0)), (board(0, 0), board(5, 2)), (board(5, 2), bench(8))]:
             moved = await sdk.call_tool('move_unit', {'source': source, 'target': target})
             assert not moved.isError, moved.structuredContent
-            assert moved.structuredContent['source'] == source and moved.structuredContent['target'] == target
-            assert moved.structuredContent['status']['round'] == 2
+            assert moved.structuredContent['receipt']['source'] == source and moved.structuredContent['receipt']['target'] == target
+            assert moved.structuredContent['receipt']['status']['round'] == 2
+            assert moved.structuredContent['decision'] == (await sdk.call_tool('get_decision')).structuredContent
         assert (await sdk.call_tool('move_unit', {'source': bench(8), 'target': bench(8)})).structuredContent['code'] == 'unsupported_action'
         assert (await sdk.call_tool('move_unit', {'source': board(0, 0), 'target': bench(8)})).structuredContent['code'] == 'empty_slot'
-        await sdk.call_tool('close_game')
 
 
 @pytest.mark.parametrize('incoming,outgoing,slot', [(True, False, 5), (False, True, 5), (True, True, 5), (True, True, 0), (False, True, 0)])
@@ -313,10 +313,9 @@ async def test_production_all_family_movement_tape_replays_with_extra_reads_and_
         path = tmp_path / str(extra)
         path.mkdir()
         async with client(path) as sdk:
-            await sdk.call_tool('start_game', {'seed': 0})
             for _ in range(3):
                 await sdk.call_tool('end_turn')
-            offers = (await sdk.call_tool('get_shop')).structuredContent['slots']
+            offers = (await sdk.call_tool('get_decision')).structuredContent['shop']
             chosen = []
             for offer in offers:
                 if offer['unit'] and offer['unit']['champion'] not in [o['unit']['champion'] for o in chosen]:
@@ -330,22 +329,24 @@ async def test_production_all_family_movement_tape_replays_with_extra_reads_and_
             receipts = []
             for source, target in tape:
                 if extra:
-                    for name in ('get_board', 'get_traits', 'get_items', 'get_bench', 'get_shop', 'get_economy', 'get_round'):
+                    for name in ('get_decision', 'get_board', 'get_decision'):
                         assert not (await sdk.call_tool(name)).isError
                     rejected = await sdk.call_tool('move_unit', {'source': source, 'target': source})
                     assert rejected.isError and rejected.structuredContent['code'] == 'unsupported_action'
                 result = await sdk.call_tool('move_unit', {'source': source, 'target': target})
                 assert not result.isError, result.structuredContent
-                data = result.structuredContent
+                data = result.structuredContent['receipt']
                 data['status'].pop('game_id')
                 receipts.append(data)
             state = []
-            for name in ('get_board', 'get_traits', 'get_bench', 'get_items', 'get_economy', 'get_shop'):
+            for name in ('get_board', 'get_decision'):
                 data = (await sdk.call_tool(name)).structuredContent
-                data.pop('game_id')
+                if 'status' in data:
+                    data['status'].pop('game_id')
+                else:
+                    data.pop('game_id')
                 state.append(data)
             assert receipts[-1]['status']['planning_budget']['remaining'] == 3
-            await sdk.call_tool('close_game')
         events = [json.loads(line) for line in (path / 'audit.jsonl').read_text().splitlines()]
         progress = [{key: event[key] for key in ('player_id', 'round', 'kind', 'action', 'placements')}
                     for event in events if event['event'] == 'progression']
@@ -362,8 +363,7 @@ async def test_production_strict_movement_inputs_preserve_state(tmp_path):
                          {'kind': 'bench', 'slot': -1}, {'kind': 'bench', 'slot': 9}, board(7, 0), board(0, 4),
                          board(True, 0), board(0, 1.0), {'kind': 'opponent', 'slot': 0}]
     async with client(tmp_path) as sdk:
-        await sdk.call_tool('start_game', {'seed': 0})
-        before = (await sdk.call_tool('get_game_status')).structuredContent
+        before = (await sdk.call_tool('get_decision')).structuredContent
         for field in ('source', 'target'):
             for location in invalid_locations:
                 arguments = {'source': bench(0), 'target': board(0, 0), field: location}
@@ -371,8 +371,7 @@ async def test_production_strict_movement_inputs_preserve_state(tmp_path):
                 assert error.isError and error.structuredContent['code'] == 'invalid_input'
         for arguments in ({}, {'source': bench(0)}, {'source': bench(0), 'target': board(0, 0), 'player_id': 'player_0'}):
             assert (await sdk.call_tool('move_unit', arguments)).structuredContent['code'] == 'invalid_input'
-        assert (await sdk.call_tool('get_game_status')).structuredContent == before
-        await sdk.call_tool('close_game')
+        assert (await sdk.call_tool('get_decision')).structuredContent == before
 
 
 @pytest.mark.parametrize('corruption', ['coordinates', 'missing_guard', 'overlord', 'old_links'])
@@ -413,10 +412,10 @@ async def test_sdk_memory_rare_real_azir_fixture_and_atomic_guard_rejection(tmp_
     from support import gameplay_with_numpy as gameplay
     session = session_fixture(tmp_path)
     install_units(session, [(0, 'azir', 1, [])])
-    async with memory_client(session, monkeypatch) as sdk:
+    async with memory_client(session) as sdk:
         entered = await sdk.call_tool('move_unit', {'source': bench(0), 'target': board(3, 2)})
         assert not entered.isError
-        guards = [c['location'] for c in entered.structuredContent['unit_changes'] if c['after'] and c['after']['champion'] == 'sandguard']
+        guards = [c['location'] for c in entered.structuredContent['receipt']['unit_changes'] if c['after'] and c['after']['champion'] == 'sandguard']
         assert len(guards) == 2
         before = gameplay(session)
         rejected = await sdk.call_tool('move_unit', {'source': guards[0], 'target': bench(8)})
@@ -426,8 +425,7 @@ async def test_sdk_memory_rare_real_azir_fixture_and_atomic_guard_rejection(tmp_
         assert not moved.isError
         removed = await sdk.call_tool('move_unit', {'source': board(3, 2), 'target': bench(8)})
         assert not removed.isError
-        assert any(c['before'] and c['before']['champion'] == 'sandguard' and c['after'] is None for c in removed.structuredContent['unit_changes'])
-        await sdk.call_tool('close_game')
+        assert any(c['before'] and c['before']['champion'] == 'sandguard' and c['after'] is None for c in removed.structuredContent['receipt']['unit_changes'])
 
 
 def test_movement_lifecycle_budget_and_detached_receipt(tmp_path):
@@ -463,14 +461,13 @@ def test_movement_lifecycle_budget_and_detached_receipt(tmp_path):
 async def test_production_movement_audit_failure_then_fresh_retry(tmp_path):
     from support import client
     async with client(tmp_path) as sdk:
-        await sdk.call_tool('start_game', {'seed': 0})
         await sdk.call_tool('end_turn')
-        offers = (await sdk.call_tool('get_shop')).structuredContent['slots']
-        gold = (await sdk.call_tool('get_economy')).structuredContent['gold']
+        offers = (await sdk.call_tool('get_decision')).structuredContent['shop']
+        gold = (await sdk.call_tool('get_decision')).structuredContent['economy']['gold']
         offer = next(o for o in offers if o['purchase_cost'] <= gold)
         purchased = await sdk.call_tool('buy_unit', {'shop_slot': offer['slot']})
-        source = next(c['location'] for c in purchased.structuredContent['unit_changes'] if c['after'])
-        before = [(await sdk.call_tool(read)).structuredContent for read in ('get_game_status', 'get_board', 'get_bench', 'get_traits')]
+        source = next(c['location'] for c in purchased.structuredContent['receipt']['unit_changes'] if c['after'])
+        before = [(await sdk.call_tool(read)).structuredContent for read in ('get_decision', 'get_board')]
         audit = tmp_path / 'audit.jsonl'
         saved = audit.read_bytes()
         audit.unlink()
@@ -479,9 +476,8 @@ async def test_production_movement_audit_failure_then_fresh_retry(tmp_path):
         assert rejected.isError and rejected.structuredContent['code'] == 'log_unavailable'
         audit.rmdir()
         audit.write_bytes(saved)
-        assert [(await sdk.call_tool(read)).structuredContent for read in ('get_game_status', 'get_board', 'get_bench', 'get_traits')] == before
+        assert [(await sdk.call_tool(read)).structuredContent for read in ('get_decision', 'get_board')] == before
         assert not (await sdk.call_tool('move_unit', {'source': source, 'target': board(6, 3)})).isError
-        await sdk.call_tool('close_game')
 
 
 @pytest.mark.parametrize('corruption', ['count', 'guard_link', 'guard_type'])

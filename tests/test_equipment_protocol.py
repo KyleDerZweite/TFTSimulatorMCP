@@ -6,32 +6,32 @@ from support import bench, board
 
 @pytest.mark.anyio
 async def test_stdio_equipment_discovery_strict_schema_and_natural_item(tmp_path):
-    from tft_mcp.transport import LOCATION_SCHEMA, UNIT_CHANGE_SCHEMA, ITEM_CHANGE_SCHEMA, STATUS_SCHEMA
+    from tft_mcp.tool_schemas import LOCATION_SCHEMA, UNIT_CHANGE_SCHEMA, ITEM_CHANGE_SCHEMA, STATUS_SCHEMA
     async with client(tmp_path) as sdk:
         tools = {t.name: t for t in (await sdk.list_tools()).tools}
         tool = tools['equip_item']
         assert tool.inputSchema['properties'] == {'item_slot': {'type': 'integer', 'minimum': 0, 'maximum': 9}, 'target': LOCATION_SCHEMA}
         assert tool.inputSchema['additionalProperties'] is False
         assert set(tool.inputSchema['required']) == {'item_slot', 'target'}
-        assert set(tool.outputSchema['required']) == {'item_slot', 'item_id', 'target', 'unit_changes', 'item_changes', 'kayn_form', 'status'}
+        assert set(tool.outputSchema['properties']['receipt']['required']) == {'item_slot', 'item_id', 'target', 'unit_changes', 'item_changes', 'kayn_form', 'status'}
+        assert set(tool.outputSchema['required']) == {'receipt', 'decision'}
         assert tool.outputSchema['additionalProperties'] is False
-        assert tool.outputSchema['properties']['unit_changes']['items'] == UNIT_CHANGE_SCHEMA
-        assert tool.outputSchema['properties']['item_changes']['items'] == ITEM_CHANGE_SCHEMA
-        assert tool.outputSchema['properties']['status'] == STATUS_SCHEMA
-        assert (await sdk.call_tool('equip_item', {'item_slot': 0, 'target': bench(0)})).structuredContent['code'] == 'no_game'
+        assert tool.outputSchema['properties']['receipt']['properties']['unit_changes']['items'] == UNIT_CHANGE_SCHEMA
+        assert tool.outputSchema['properties']['receipt']['properties']['item_changes']['items'] == ITEM_CHANGE_SCHEMA
+        assert tool.outputSchema['properties']['receipt']['properties']['status'] == STATUS_SCHEMA
+        assert (await sdk.call_tool('equip_item', {'item_slot': 0, 'target': bench(0)})).structuredContent['code'] == 'empty_slot'
         for arguments in [{}, {'item_slot': True, 'target': bench(0)}, {'item_slot': 1.0, 'target': bench(0)}, {'item_slot': -1, 'target': bench(0)}, {'item_slot': 10, 'target': bench(0)}, {'item_slot': 0, 'target': None}, {'item_slot': 0, 'target': {'kind': 'bench', 'slot': False}}, {'item_slot': 0, 'target': {**board(0, 0), 'slot': 0}}, {'item_slot': 0, 'target': bench(0), 'player_id': 'player_1'}]:
             result = await sdk.call_tool('equip_item', arguments)
             assert result.isError and result.structuredContent['code'] == 'invalid_input'
-        await sdk.call_tool('start_game', {'seed': 0})
         await sdk.call_tool('end_turn')
         await sdk.call_tool('buy_unit', {'shop_slot': 0})
         await sdk.call_tool('buy_unit', {'shop_slot': 1})
         await sdk.call_tool('end_turn')
-        items = (await sdk.call_tool('get_items')).structuredContent['slots']
+        items = (await sdk.call_tool('get_decision')).structuredContent['items']
         assert items[0]['item'] == 'sparring_gloves'
         units = (await sdk.call_tool('get_board')).structuredContent['slots']
         target = next(s['location'] for s in units if s['unit'])
-        before = [(await sdk.call_tool(read)).structuredContent for read in ['get_game_status', 'get_board', 'get_items']]
+        before = [(await sdk.call_tool(read)).structuredContent for read in ['get_decision', 'get_board']]
         audit = tmp_path / 'audit.jsonl'
         saved = audit.read_bytes()
         audit.unlink()
@@ -40,16 +40,16 @@ async def test_stdio_equipment_discovery_strict_schema_and_natural_item(tmp_path
         assert rejected.isError and rejected.structuredContent['code'] == 'log_unavailable'
         audit.rmdir()
         audit.write_bytes(saved)
-        assert [(await sdk.call_tool(read)).structuredContent for read in ['get_game_status', 'get_board', 'get_items']] == before
+        assert [(await sdk.call_tool(read)).structuredContent for read in ['get_decision', 'get_board']] == before
         result = await sdk.call_tool('equip_item', {'item_slot': 0, 'target': target})
         assert not result.isError, result.structuredContent
-        receipt = result.structuredContent
+        receipt = result.structuredContent['receipt']
+        assert result.structuredContent['decision'] == (await sdk.call_tool('get_decision')).structuredContent
         assert receipt['item_id'] == 'sparring_gloves'
         assert receipt['unit_changes'][0]['after']['items'] == ['sparring_gloves']
         assert receipt['item_changes'] == [{'slot': 0, 'before': 'sparring_gloves', 'after': None}]
         assert receipt['status']['round'] == 3 and receipt['status']['planning_budget']['remaining'] == 13
         assert (await sdk.call_tool('equip_item', {'item_slot': 0, 'target': target})).structuredContent['code'] == 'empty_slot'
-        await sdk.call_tool('close_game')
 
 
 @pytest.mark.anyio
@@ -63,10 +63,11 @@ async def test_sdk_memory_rare_equipment_native_fixture(tmp_path, monkeypatch, i
     player = install_units(session, **({'board': [((6, 3), 'kayn', 1, equipment)]} if is_kayn else {'bench': [(8, 'garen', 1, equipment)]}))
     player.item_bench = [item] + [None] * 9
     target = board(6, 3) if is_kayn else bench(8)
-    async with memory_client(session, monkeypatch) as sdk:
+    async with memory_client(session) as sdk:
         result = await sdk.call_tool('equip_item', {'item_slot': 0, 'target': target})
         assert not result.isError, result.structuredContent
-        receipt = result.structuredContent
+        receipt = result.structuredContent['receipt']
+        assert result.structuredContent['decision'] == (await sdk.call_tool('get_decision')).structuredContent
         assert receipt['item_id'] == item and receipt['target'] == target
         assert receipt['status']['planning_budget']['remaining'] == 13
         if item == 'champion_duplicator':
@@ -81,7 +82,6 @@ async def test_sdk_memory_rare_equipment_native_fixture(tmp_path, monkeypatch, i
         rejected = await sdk.call_tool('equip_item', {'item_slot': 0, 'target': target})
         assert rejected.isError and rejected.structuredContent['code'] == 'empty_slot'
         assert gameplay(session) == before
-        await sdk.call_tool('close_game')
 
 
 @pytest.mark.anyio
@@ -93,7 +93,6 @@ async def test_stdio_equipment_replay_ignores_reads_and_rejections(tmp_path):
         path.mkdir()
         receipts = []
         async with client(path) as sdk:
-            await sdk.call_tool('start_game', {'seed': 0})
             await sdk.call_tool('end_turn')
             await sdk.call_tool('buy_unit', {'shop_slot': 0})
             await sdk.call_tool('buy_unit', {'shop_slot': 1})
@@ -101,33 +100,37 @@ async def test_stdio_equipment_replay_ignores_reads_and_rejections(tmp_path):
             slots = (await sdk.call_tool('get_board')).structuredContent['slots']
             target = next(s['location'] for s in slots if s['unit'])
             if extra:
-                for read in ['get_board', 'get_bench', 'get_items', 'get_traits', 'get_game_status', 'search_items']:
+                for read in ['get_board', 'get_decision', 'search_items', 'get_decision']:
                     assert not (await sdk.call_tool(read)).isError
                 assert (await sdk.call_tool('equip_item', {'item_slot': False, 'target': target})).isError
             result = await sdk.call_tool('equip_item', {'item_slot': 0, 'target': target})
             assert not result.isError
-            receipt = result.structuredContent
+            receipt = result.structuredContent['receipt']
+            assert result.structuredContent['decision'] == (await sdk.call_tool('get_decision')).structuredContent
             receipt['status'].pop('game_id')
             receipts.append(receipt)
             sold = await sdk.call_tool('sell_unit', {'location': target})
-            assert not sold.isError and sold.structuredContent['returned_items'] == ['sparring_gloves']
-            slots = (await sdk.call_tool('get_bench')).structuredContent['slots']
+            assert not sold.isError and sold.structuredContent['receipt']['returned_items'] == ['sparring_gloves']
+            slots = (await sdk.call_tool('get_decision')).structuredContent['bench']
             target = next(s['location'] for s in slots if s['unit'])
             if extra:
                 assert (await sdk.call_tool('equip_item', {'item_slot': 9, 'target': target})).structuredContent['code'] == 'empty_slot'
-                await sdk.call_tool('get_shop')
-                await sdk.call_tool('get_items')
+                await sdk.call_tool('get_decision')
+                await sdk.call_tool('get_decision')
             result = await sdk.call_tool('equip_item', {'item_slot': 0, 'target': target})
             assert not result.isError
-            receipt = result.structuredContent
+            receipt = result.structuredContent['receipt']
+            assert result.structuredContent['decision'] == (await sdk.call_tool('get_decision')).structuredContent
             receipt['status'].pop('game_id')
             receipts.append(receipt)
             state = []
-            for read in ['get_board', 'get_bench', 'get_items', 'get_traits', 'get_economy', 'get_shop']:
+            for read in ['get_board', 'get_decision']:
                 data = (await sdk.call_tool(read)).structuredContent
-                data.pop('game_id')
+                if 'status' in data:
+                    data['status'].pop('game_id')
+                else:
+                    data.pop('game_id')
                 state.append(data)
-            await sdk.call_tool('close_game')
         events = [json.loads(line) for line in (path / 'audit.jsonl').read_text().splitlines()]
         progression = [{key: e[key] for key in ('player_id', 'round', 'kind', 'action', 'placements')} for e in events if e['event'] == 'progression']
         journeys.append((receipts, state, progression))
@@ -144,7 +147,7 @@ async def test_sdk_impossible_native_stars_reject_before_output_publication(tmp_
     player.item_bench = ['bf_sword'] + [None] * 9
     before = pickle.dumps(session.game)
     status = session.get_game_status()
-    async with memory_client(session, monkeypatch) as sdk:
+    async with memory_client(session) as sdk:
         result = await sdk.call_tool('equip_item', {'item_slot': 0, 'target': bench(0)})
         assert result.isError
         assert pickle.dumps(session.game) == before

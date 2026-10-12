@@ -1,39 +1,21 @@
 # Verification
 
-## Project name and documentation
+Checked on 2026-10-12. Tested MCP revision `3edc3ef69befe1c95b6782d3b2be88c7188f0150`, PR base `63c55f76e0a7649633ee208ba70650c495f36e24`. Subsequent verification-only edits leave production and tests unchanged.
 
-Verified on 2026-10-11 at `0f5f72eac895cb98f722331772761ca876ea3cec`, based on `2420f858cbcc980c1f3678e89dbd9e523cc1a68f`. The repository is TFTSimulatorMCP and the distribution is `tft-simulator-mcp`. Production source, tests, simulator dependency, import and launcher are unchanged.
-
-The exact manual installation block in [setup.md](setup.md#install-a-pinned-revision) passed in a fresh noneditable environment. Its idle SDK check passed; the documented expanded selector passed six protocol checks in 10.93s, with five unrelated cases deselected. Reusing the installation path failed before changing the archive or revision records. Pip consistency, installed module identities, simulator commit/digest and wheel separation passed. Thirty local Markdown targets, nine shell blocks and three JSON argument examples were checked, and the tool index contains exactly 25 tools. Both independent reviews had no findings.
-
-Evidence is retained under `/home/kyle/.local/share/tft-simulator-mcp/install-20261011-091727/logs`, including `setup-check.log`, `sdk/expanded-protocol.log`, `rename-identity.json` and `repeated-install-refusal.txt`. The archive SHA-256 is `dc14d1d99e7b0cb2cde0056a8047bd4b099ede47bd4b81750fc4064f5232ba25`. Native registrations and historical installations were retained. Full gameplay and native LLM tests were not repeated for metadata and documentation changes.
-
-## Previous standalone extraction
-
-These results are historical evidence under the preceding TFTMuZeroMCP name. Their paths and revisions remain literal; they do not establish a new full-game run for the renamed distribution.
-
-Verified on 2026-10-11. The reviewed standalone implementation is `5fa9552d1a3b503efcd76c2869d858dc3f1a858c`, based on `da519e9278ba2facb5b5d1227d4ccd63492ef002`. Production modules have not changed since frozen source `bc8847e`. The later `367eff4` correction affects an acceptance assertion and its regression test only.
+The simulator remains unchanged at `33c2c6eb873da1aaf319dc0c36bcbec1ad20c48d`. Installed source SHA-256 is `43db488008ac7503201978bef81230635d65a7d15c37b82b6cd368d2fa669dcb`.
 
 | Check | Result |
 | --- | --- |
-| Complete suite at bc8847e, including full lobbies | 329 passed in 657.52s |
-| Fresh installed official SDK, including three-process full-game replay | 11 passed in 376.18s; 4 checkout-only fixture cases deselected |
-| Final provenance and installed-origin checks | 7 passed; updated helper revalidated against all six recorded startup audits |
-| Git dependency, noneditable imports, pip consistency, wheel separation | Passed; all seven installed production modules match |
-| Independent Standards and Spec review at 5fa9552 | No remaining findings |
-| Real Codex execution on the standalone installation | GPT-6.1-Sol low called get_game_status; idle, exit 0 |
-| Simulator fork cleanup | PR28 merged; entire resulting tree equals the pinned original simulator tree |
+| Full checkout suite | 345 passed in 579.56s. |
+| Fresh installed SDK acceptance | 5 passed in 225.66s, outside both checkouts without `PYTHONPATH`. Includes three-process replay, all 16 tools, budget, audit recovery and graceful shutdown. |
+| Native Codex GPT-6-Luna, low, seed 0 | Completed lobby, placement 5. Skill loaded. 125 calls, 112 successes, 13 rejections. Terminal state and all eight placements verified. |
+| Artifact identity | All 17 installed production modules and the skill match tested source byte-for-byte. |
+| Independent reviews | Standards 0 findings; Spec 0 findings. |
 
-The replay exercised all 25 tools and compared receipts, reads, baseline actions and all eight placements. Reordered reads and a rejected action preserved the result. All six source/installed processes ended at SDK round 25 with controlled placement 8. This proves operation and determinism, not playing strength. Final collection has 330 tests; the full suite was not repeated after the test-only correction.
+Evidence directory: `/home/kyle/.local/share/tft-simulator-mcp/single-mode-20261012-_ffc6i2b/`. It contains exact commands, source manifest, test logs, native session/audit and corrected test-adaptation failure records. Source archive SHA-256 is `77f3ec41bc056ae6545e2bd8fa567c0f280976f7e34f5aaa8ff6cfd8cdfa38b1`.
 
-The protected installation is `/home/kyle/.local/share/tftmuzero-mcp/standalone-20261011`. Python 3.14.7, MCP 1.30.0, NumPy 2.5.4, PettingZoo 1.27.0, Gymnasium 1.4.0 and pytest 9.1.1 were used. The frozen noneditable MCP archive SHA-256 is `e737c609ff9d5e6be35aa1d1a389b31d89195ed994c70aba7ca65234527b0253`.
+Codex termination skipped the graceful close audit callback. Terminal gameplay was committed, and no installed server process remained. SDK graceful close passed. Credentials and the saved TFT approval default remained unchanged; Codex rewrote configuration bytes, so whole-configuration preservation is unproven. No persistent server-entry update was performed.
 
-Pip installed the external simulator from Git commit `33c2c6eb873da1aaf319dc0c36bcbec1ad20c48d`, confirmed by installed PEP 610 metadata. Its 53 Python files have source digest `43db488008ac7503201978bef81230635d65a7d15c37b82b6cd368d2fa669dcb`. The wheel contains only `tft_mcp` and package metadata, including the preserved Apache license.
+No GitHub CI workflow, strength benchmark or authenticated Claude gameplay was checked. A completed game establishes usability, not improved playing strength.
 
-Both existing native registrations use the new absolute launcher. The original Claude project scope remains unchanged. The scoped configuration patch verified full parsed preservation outside the approved launcher and three TFT environment fields, unchanged auth/settings bytes, policies, ownership and mode. Independent inspection verified current registrations and the actual Codex call. Original before/after preservation is writer-origin evidence. No session approval override was used.
-
-The public [standalone repository](https://github.com/KyleDerZweite/TFTSimulatorMCP) preserves filtered MCP history. README and GitHub website link [Silverlight's original](https://github.com/silverlight6/TFTMuZeroAgent). Upstream Draft PR89 was closed without merging. [Fork PR28](https://github.com/KyleDerZweite/TFTMuZeroAgent/pull/28) removed the old MCP files at merge `80de4e9e45cecf5e53fd642c336eec59241a80d2`; simulator code and history remain intact.
-
-Retained `logs/` evidence includes `full-suite-2.log`, `installed-sdk-1.log`, `provenance-3.log`, `identity-helper-refresh.json`, `replay-summary-bc8847e.json`, installation identity, native migration proof and `codex/idle-session.jsonl`. Native idle thread: `01a1283e-cc97-7223-ac99-c24069100d91`. `migration-verification-at-5fa.md` retains the exact test commands. The initial fixture failure was corrected; the interrupted first suite is retained and not counted as passed.
-
-No new native LLM full game or authenticated Claude gameplay was run. The historical Codex game at original source `c4011d0` reached placement 4; it proves the earlier installation only. Claude registration reports Connected, while its earlier model attempt returned HTTP 404 before gameplay. GitHub CI, a Python version matrix and separate simulator UnitTests were not run for this migration. PoroSight integration and durable game resume remain outside the accepted contract.
+Silver's feedback produced automatic lifecycle, shared observations, smaller modules and state after actions. `end_turn` remains a model decision. Codex owns the tool loop; Qwen-specific research adds no runtime requirement for this target. [Set 4 sources](set4-sources.md) remain a future offline-data foundation.

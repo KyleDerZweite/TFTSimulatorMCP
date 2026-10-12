@@ -9,11 +9,10 @@ from support import client
 
 
 ACTIONS = {'buy_unit', 'sell_unit', 'move_unit', 'equip_item', 'refresh_shop', 'buy_xp', 'end_turn'}
-READS = ('get_game_status', 'get_board', 'get_bench', 'get_shop', 'get_items',
-         'get_economy', 'get_traits', 'get_round', 'get_players')
+READS = ('get_decision', 'get_board', 'get_players')
 CATALOGS = {'search_champions', 'get_champion', 'search_traits', 'get_trait',
-            'get_trait_champions', 'search_items', 'get_item'}
-TOOLS = ACTIONS | set(READS) | CATALOGS | {'start_game', 'close_game'}
+            'search_items', 'get_item'}
+TOOLS = ACTIONS | set(READS) | CATALOGS
 
 
 async def call(sdk, transcript, name, arguments=None, error=None):
@@ -34,7 +33,10 @@ def validate_audit(path, transcript):
     assert records and all(isinstance(record, dict) for record in records)
     assert len({record['server_id'] for record in records}) == 1
     assert [record['sequence'] for record in records] == list(range(1, len(records) + 1))
-    index = 0
+    assert [record['event'] for record in records[:3]] == ['process_start', 'start_candidate', 'game_started']
+    assert records[0]['seed'] == 0
+    assert records[2]['seed'] == 0
+    index = 3
     for expected in transcript:
         record = records[index]
         assert record['tool'] == expected['tool']
@@ -50,21 +52,13 @@ def validate_audit(path, transcript):
         between = []
         while records[index]['event'] != 'tool_result':
             between.append(records[index])
-            assert records[index]['event'] in {'start_candidate', 'game_started', 'progression',
-                                                'lobby_complete', 'game_closed'}
+            assert records[index]['event'] in {'progression', 'lobby_complete'}
             index += 1
         result = records[index]
         assert result['tool'] == expected['tool']
         assert result['is_error'] is False and result['result'] == expected['result']
-        if expected['tool'] not in ACTIONS:
-            assert not any(event['event'] == 'progression' for event in between)
-        if expected['tool'] == 'start_game':
-            assert [event['event'] for event in between] == ['start_candidate', 'game_started']
-            assert all(event['game_id'] == expected['result']['game_id'] for event in between)
-        elif expected['tool'] == 'close_game':
-            assert [event['event'] for event in between] == (['game_closed'] if expected['result']['closed_game_id'] else [])
-        elif expected['tool'] in ACTIONS:
-            status = expected['result'] if expected['tool'] == 'end_turn' else expected['result']['status']
+        if expected['tool'] in ACTIONS:
+            status = expected['result']['status'] if expected['tool'] == 'end_turn' else expected['result']['decision']['status']
             assert between and any(event['event'] == 'progression' for event in between)
             assert all(event['game_id'] == status['game_id'] for event in between)
             assert all(event['event'] in {'progression', 'lobby_complete'} for event in between)
@@ -72,7 +66,7 @@ def validate_audit(path, transcript):
             assert not between
         index += 1
     # The production server closes an active game after stdin closes.
-    assert all(record['event'] == 'game_closed' for record in records[index:])
+    assert [record['event'] for record in records[index:]] == ['game_closed']
     for record in records:
         if 'native_log_dir' in record:
             directory = Path(record['native_log_dir']).resolve()
@@ -83,36 +77,26 @@ def validate_audit(path, transcript):
 
 
 @pytest.mark.anyio
-async def test_production_incomplete_close_shutdown_and_restart(tmp_path):
-    actual, fresh = tmp_path / 'actual', tmp_path / 'fresh'
-    actual.mkdir()
-    fresh.mkdir()
-    transcript = []
-    async with client(actual) as sdk:
-        started = await call(sdk, transcript, 'start_game', {'seed': 0})
-        initial = await checkpoint(sdk, transcript)
-        closed = await call(sdk, transcript, 'close_game')
-        assert closed['closed_game_id'] == started['game_id']
+async def test_production_incomplete_shutdown_and_restart(tmp_path):
+    initial = None
+    identities = []
+    for name in ('actual', 'fresh'):
+        path = tmp_path / name
+        path.mkdir()
+        transcript = []
+        async with client(path) as sdk:
+            state = await checkpoint(sdk, transcript)
+            identities.append(state['get_decision']['status']['game_id'])
+            if initial is None:
+                initial = comparable(state)
+            else:
+                assert comparable(state) == initial
+        events = validate_audit(path, transcript)
+        closed = events[-1]
+        assert closed['game_id'] == identities[-1]
         assert closed['outcome'] == {'controlled_placement': None, 'lobby_complete': False,
                                      'reason': 'closed_incomplete'}
-        assert closed['status']['state'] == 'idle'
-        idle = await call(sdk, transcript, 'close_game')
-        assert idle['closed_game_id'] is None and idle['outcome'] is None
-        restarted = await call(sdk, transcript, 'start_game', {'seed': 0})
-        assert restarted['game_id'] != started['game_id']
-        assert comparable(await checkpoint(sdk, transcript)) == comparable(initial)
-    events = validate_audit(actual, transcript)
-    closes = [event for event in events if event['event'] == 'game_closed']
-    assert [event['game_id'] for event in closes] == [started['game_id'], restarted['game_id']]
-    assert all(event['outcome'] == closed['outcome'] for event in closes)
-    assert events[-1] == closes[-1]
-    transcript = []
-    async with client(fresh) as sdk:
-        assert (await call(sdk, transcript, 'get_game_status'))['state'] == 'idle'
-        await call(sdk, transcript, 'start_game', {'seed': 0})
-        assert comparable(await checkpoint(sdk, transcript)) == comparable(initial)
-        await call(sdk, transcript, 'close_game')
-    validate_audit(fresh, transcript)
+    assert identities[0] != identities[1]
 
 
 def comparable(data):
@@ -127,24 +111,24 @@ def comparable(data):
 
 async def checkpoint(sdk, transcript, order=READS):
     result = {name: await call(sdk, transcript, name) for name in order}
-    status = result['get_game_status']
+    decision = result['get_decision']
+    status = decision['status']
     assert status['state'] in {'running', 'terminal'}
-    for name in READS[1:]:
-        assert result[name]['game_id'] == status['game_id']
-    for name in ('get_board', 'get_bench', 'get_shop', 'get_items', 'get_economy', 'get_traits'):
-        assert result[name]['player_id'] == 'player_0'
+    assert decision['snapshot_round'] == result['get_board']['round']
+    assert result['get_board']['game_id'] == result['get_players']['game_id'] == status['game_id']
+    assert result['get_board']['player_id'] == 'player_0'
     assert len(result['get_board']['slots']) == 28
-    assert len(result['get_bench']['slots']) == 9
-    assert len(result['get_shop']['slots']) == 5
-    assert len(result['get_items']['slots']) == 10
+    assert decision['board'] == [slot for slot in result['get_board']['slots'] if slot['unit']]
+    assert all(slot['unit'] for slot in decision['bench'])
+    assert all(slot['item'] for slot in decision['items'])
+    assert all(trait['count'] for trait in decision['traits'])
+    assert [offer['slot'] for offer in decision['shop']] == list(range(5))
     assert len(result['get_players']['players']) == 8
-    assert result['get_economy']['planning_budget'] == status['planning_budget']
     living = next((row['player_id'] for row in result['get_players']['players']
                    if not row['controlled'] and row['status'] == 'alive'), None)
     if living:
-        for name in ('get_board', 'get_traits'):
-            result[name + '_opponent'] = await call(sdk, transcript, name, {'player_id': living})
-            assert result[name + '_opponent']['player_id'] == living
+        result['get_board_opponent'] = await call(sdk, transcript, 'get_board', {'player_id': living})
+        assert result['get_board_opponent']['player_id'] == living
     return result
 
 
@@ -161,7 +145,7 @@ async def rules(sdk, transcript):
     selected = traits['traits'][0]
     trait = await call(sdk, transcript, 'get_trait', {'trait_id': selected['trait_id']})
     assert trait['thresholds'] == selected['thresholds']
-    members = await call(sdk, transcript, 'get_trait_champions', {'trait_id': selected['trait_id']})
+    members = await call(sdk, transcript, 'search_champions', {'trait_id': selected['trait_id']})
     assert [row['champion_id'] for row in members['champions']] == trait['champion_ids']
     assert all(selected['trait_id'] in row['traits'] for row in members['champions'])
     items = await call(sdk, transcript, 'search_items', {'kind': 'component'})
@@ -174,26 +158,31 @@ async def rules(sdk, transcript):
 
 
 def unit_at(state, location):
-    name = 'get_board' if location['kind'] == 'board' else 'get_bench'
-    return next(slot['unit'] for slot in state[name]['slots'] if slot['location'] == location)
+    slots = state['get_decision'][location['kind']]
+    return next((slot['unit'] for slot in slots if slot['location'] == location), None)
 
 
 def check_action(name, arguments, receipt, before, after):
-    status = receipt if name == 'end_turn' else receipt['status']
-    assert status == after['get_game_status']
+    decision = receipt if name == 'end_turn' else receipt['decision']
+    assert decision == after['get_decision']
+    status = decision['status']
+    if name != 'end_turn':
+        assert set(receipt) == {'receipt', 'decision'}
+        receipt = receipt['receipt']
+    assert status == after['get_decision']['status']
     if name == 'end_turn':
-        assert status['round'] > before['get_game_status']['round']
+        assert status['round'] > before['get_decision']['status']['round']
         assert status['state'] == 'terminal' or status['planning_budget']['remaining'] == 14
         return
-    assert status['round'] == before['get_game_status']['round']
-    assert status['planning_budget']['remaining'] == before['get_game_status']['planning_budget']['remaining'] - 1
-    old_gold = before['get_economy']['gold']
-    new_gold = after['get_economy']['gold']
+    assert status['round'] == before['get_decision']['status']['round']
+    assert status['planning_budget']['remaining'] == before['get_decision']['status']['planning_budget']['remaining'] - 1
+    old_gold = before['get_decision']['economy']['gold']
+    new_gold = after['get_decision']['economy']['gold']
     for change in receipt.get('unit_changes', []):
         assert change['before'] == unit_at(before, change['location'])
         assert change['after'] == unit_at(after, change['location'])
     if name == 'buy_unit':
-        offer = before['get_shop']['slots'][arguments['shop_slot']]
+        offer = before['get_decision']['shop'][arguments['shop_slot']]
         assert receipt['purchased'] == offer['unit'] and receipt['gold_spent'] == offer['purchase_cost']
         assert new_gold == old_gold - receipt['gold_spent']
     elif name == 'sell_unit':
@@ -206,19 +195,19 @@ def check_action(name, arguments, receipt, before, after):
         assert new_gold == old_gold
     elif name == 'equip_item':
         slot = arguments['item_slot']
-        assert receipt['item_id'] == before['get_items']['slots'][slot]['item']
+        assert receipt['item_id'] == next(item['item'] for item in before['get_decision']['items'] if item['slot'] == slot)
         assert receipt['item_id'] in unit_at(after, arguments['target'])['items']
-        assert after['get_items']['slots'][slot]['item'] is None
+        assert all(item['slot'] != slot for item in after['get_decision']['items'])
         assert receipt['item_changes'] == [{'slot': slot, 'before': receipt['item_id'], 'after': None}]
         assert new_gold == old_gold
     elif name == 'refresh_shop':
-        assert receipt['slots'] == after['get_shop']['slots']
+        assert receipt['slots'] == after['get_decision']['shop']
         assert new_gold == old_gold - receipt['gold_spent']
     elif name == 'buy_xp':
-        assert receipt['xp_before'] == before['get_economy']['exp']
-        assert receipt['level_before'] == before['get_economy']['level']
-        assert receipt['xp'] == after['get_economy']['exp']
-        assert receipt['level'] == after['get_economy']['level']
+        assert receipt['xp_before'] == before['get_decision']['economy']['exp']
+        assert receipt['level_before'] == before['get_decision']['economy']['level']
+        assert receipt['xp'] == after['get_decision']['economy']['exp']
+        assert receipt['level'] == after['get_decision']['economy']['level']
         assert receipt['unit_capacity'] == after['get_board']['max_units']
         assert new_gold == old_gold - receipt['gold_spent']
 
@@ -239,27 +228,27 @@ async def original_actions(sdk, transcript, tape, receipts, states):
 
     await action('end_turn')
     for slot in (0, 1):
-        offer = state['get_shop']['slots'][slot]
-        assert offer['unit'] and offer['purchase_cost'] <= state['get_economy']['gold']
+        offer = state['get_decision']['shop'][slot]
+        assert offer['unit'] and offer['purchase_cost'] <= state['get_decision']['economy']['gold']
         await action('buy_unit', {'shop_slot': slot})
     await action('end_turn')
-    item = next(slot for slot in state['get_items']['slots'] if slot['item'] == 'sparring_gloves')
+    item = next(slot for slot in state['get_decision']['items'] if slot['item'] == 'sparring_gloves')
     source = next(slot['location'] for slot in state['get_board']['slots'] if slot['unit'])
     target = next(slot['location'] for slot in state['get_board']['slots'] if slot['unit'] is None)
     await action('move_unit', {'source': source, 'target': target})
     await action('equip_item', {'item_slot': item['slot'], 'target': target})
-    sale = next(slot['location'] for slot in state['get_bench']['slots'] if slot['unit'])
+    sale = next(slot['location'] for slot in state['get_decision']['bench'] if slot['unit'])
     await action('sell_unit', {'location': sale})
     await action('end_turn')
-    assert state['get_economy']['gold'] >= 6
+    assert state['get_decision']['economy']['gold'] >= 6
     await action('refresh_shop')
     await action('buy_xp')
     assert ACTIONS <= {entry['tool'] for entry in tape}
     for _ in range(40 - sum(entry['tool'] == 'end_turn' for entry in tape)):
         await action('end_turn')
-        if state['get_game_status']['state'] == 'terminal':
+        if state['get_decision']['status']['state'] == 'terminal':
             break
-    assert state['get_game_status']['state'] == 'terminal', (tape, state['get_game_status'])
+    assert state['get_decision']['status']['state'] == 'terminal', (tape, state['get_decision']['status'])
 
 
 def check_start_identity(record):
@@ -323,7 +312,6 @@ async def test_production_full_game_exact_tape_three_process_replay(tmp_path):
                 assert set(schemas) == TOOLS
                 catalog = await rules(sdk, transcript)
                 rule_requests = [(entry['tool'], entry['arguments']) for entry in transcript]
-                await call(sdk, transcript, 'start_game', {'seed': 0})
                 states.append(await checkpoint(sdk, transcript))
                 if run == 0:
                     await original_actions(sdk, transcript, tape, receipts, states)
@@ -347,7 +335,7 @@ async def test_production_full_game_exact_tape_three_process_replay(tmp_path):
                         assert comparable(after) == comparable(accepted[0]['states'][index + 1])
                         receipts.append(receipt)
                         states.append(after)
-                terminal = states[-1]['get_game_status']
+                terminal = states[-1]['get_decision']['status']
                 outcome = terminal['outcome']
                 assert terminal['state'] == 'terminal' and terminal['planning_budget'] is None
                 assert outcome['lobby_complete'] is True and outcome['reason'] == 'lobby_complete'
@@ -359,16 +347,14 @@ async def test_production_full_game_exact_tape_three_process_replay(tmp_path):
                 assert next(row['placement'] for row in players if row['controlled']) == outcome['controlled_placement']
                 if outcome['controlled_placement'] != 1:
                     assert states[-1]['get_board']['round'] < terminal['round']
+                eliminated = next(row['player_id'] for row in players
+                                  if not row['controlled'] and row['status'] == 'eliminated')
+                await call(sdk, transcript, 'get_board', {'player_id': eliminated}, error='player_eliminated')
                 for _ in range(2):
                     assert await checkpoint(sdk, transcript) == states[-1]
                 for action in tape:
                     await call(sdk, transcript, action['tool'], action['arguments'], error='game_terminal')
-                await call(sdk, transcript, 'start_game', {'seed': 0}, error='game_active')
                 assert await checkpoint(sdk, transcript) == states[-1]
-                closed = await call(sdk, transcript, 'close_game')
-                assert closed['outcome'] == outcome and closed['closed_game_id'] == terminal['game_id']
-                assert closed['status']['state'] == 'idle'
-                assert (await call(sdk, transcript, 'get_game_status')) == closed['status']
         finally:
             for name, data in [('sdk-transcript', transcript), ('action-tape', tape),
                                ('receipts', receipts), ('checkpoints', states)]:
@@ -407,12 +393,11 @@ async def test_production_full_game_exact_tape_three_process_replay(tmp_path):
 async def test_production_fourteen_legal_moves_reserve_explicit_end_turn(tmp_path):
     transcript = []
     async with client(tmp_path) as sdk:
-        await call(sdk, transcript, 'start_game', {'seed': 0})
         await call(sdk, transcript, 'end_turn')
         await call(sdk, transcript, 'buy_unit', {'shop_slot': 0})
         await call(sdk, transcript, 'end_turn')
         initial = await checkpoint(sdk, transcript)
-        assert initial['get_game_status']['planning_budget'] == {'capacity': 14, 'remaining': 14}
+        assert initial['get_decision']['status']['planning_budget'] == {'capacity': 14, 'remaining': 14}
         source = next(slot['location'] for slot in initial['get_board']['slots'] if slot['unit'])
         target = next(slot['location'] for slot in initial['get_board']['slots'] if slot['unit'] is None)
         before = initial
@@ -421,16 +406,15 @@ async def test_production_fourteen_legal_moves_reserve_explicit_end_turn(tmp_pat
             receipt = await call(sdk, transcript, 'move_unit', arguments)
             after = await checkpoint(sdk, transcript)
             check_action('move_unit', arguments, receipt, before, after)
-            assert after['get_game_status']['planning_budget']['remaining'] == remaining
-            assert after['get_game_status']['round'] == initial['get_game_status']['round']
+            assert after['get_decision']['status']['planning_budget']['remaining'] == remaining
+            assert after['get_decision']['status']['round'] == initial['get_decision']['status']['round']
             source, target = target, source
             before = after
         await call(sdk, transcript, 'move_unit', {'source': source, 'target': target}, error='budget_exhausted')
         assert await checkpoint(sdk, transcript) == before
         ended = await call(sdk, transcript, 'end_turn')
-        assert ended['round'] > initial['get_game_status']['round']
-        assert ended['planning_budget'] == {'capacity': 14, 'remaining': 14}
-        await call(sdk, transcript, 'close_game')
+        assert ended['status']['round'] > initial['get_decision']['status']['round']
+        assert ended['status']['planning_budget'] == {'capacity': 14, 'remaining': 14}
     events = validate_audit(tmp_path, transcript)
     rejected = [event for event in events if event['event'] == 'tool_error']
     assert len(rejected) == 1 and rejected[0]['result']['code'] == 'budget_exhausted'
@@ -440,7 +424,6 @@ async def test_production_fourteen_legal_moves_reserve_explicit_end_turn(tmp_pat
 async def test_production_unavailable_audit_preserves_external_error_and_recovers(tmp_path):
     transcript, external_errors = [], []
     async with client(tmp_path) as sdk:
-        await call(sdk, transcript, 'start_game', {'seed': 0})
         await call(sdk, transcript, 'end_turn')
         before = await checkpoint(sdk, transcript)
         audit = tmp_path / 'audit.jsonl'
@@ -459,7 +442,28 @@ async def test_production_unavailable_audit_preserves_external_error_and_recover
         assert audit.read_bytes() == saved
         assert await checkpoint(sdk, transcript) == before
         purchased = await call(sdk, transcript, 'buy_unit', {'shop_slot': 0})
-        assert purchased['purchased'] == before['get_shop']['slots'][0]['unit']
-        assert purchased['status']['planning_budget']['remaining'] == 13
-        await call(sdk, transcript, 'close_game')
+        assert purchased['receipt']['purchased'] == before['get_decision']['shop'][0]['unit']
+        assert purchased['decision']['status']['planning_budget']['remaining'] == 13
     validate_audit(tmp_path, transcript)
+
+
+def test_production_requires_explicit_seed(tmp_path):
+    import os
+    import subprocess
+    import sys
+
+    environment = dict(os.environ)
+    environment.pop('APPIMAGE', None)
+    environment.pop('TFT_MCP_SEED', None)
+    command = os.environ.get('TFT_MCP_TEST_COMMAND')
+    if command:
+        environment.pop('PYTHONPATH', None)
+        arguments = [command]
+    else:
+        environment['PYTHONPATH'] = str(Path(__file__).parents[1] / 'src')
+        arguments = [sys.executable, '-m', 'tft_mcp']
+    result = subprocess.run(arguments, env=environment, cwd=tmp_path,
+                            input='', capture_output=True, text=True, timeout=30)
+    assert result.returncode != 0
+    assert result.stdout == ''
+    assert 'TFT_MCP_SEED requires decimal digits in 0..2147483647.' in result.stderr
