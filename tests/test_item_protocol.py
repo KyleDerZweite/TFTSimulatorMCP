@@ -4,7 +4,7 @@ from support import client
 
 
 @pytest.mark.anyio
-async def test_idle_item_tools_discovery_and_results(tmp_path):
+async def test_autostart_item_tools_discovery_and_results(tmp_path):
     async with client(tmp_path) as session:
         tools = {tool.name: tool for tool in (await session.list_tools()).tools}
         assert {'search_items', 'get_item'} <= tools.keys()
@@ -49,10 +49,10 @@ async def test_item_strict_filters_errors_and_live_queries(tmp_path):
             assert not result.isError
             assert result.structuredContent['base_stats'] == stats
             assert result.structuredContent['recipe'] == item_stats.item_builds.get(item_id)
-        before = (await session.call_tool('start_game', {'seed': 123})).structuredContent
+        before = (await session.call_tool('get_decision')).structuredContent
         for kind in ['component', 'equipment', 'consumable']:
             result = await session.call_tool('search_items', {'kind': kind})
             assert not result.isError
             assert result.structuredContent['items']
             assert all(item['kind'] == kind for item in result.structuredContent['items'])
-        assert (await session.call_tool('get_game_status', {})).structuredContent == before
+        assert (await session.call_tool('get_decision', {})).structuredContent == before
