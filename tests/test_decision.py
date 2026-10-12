@@ -1,4 +1,4 @@
-"""Real-session decision snapshots and compact production MCP conversation."""
+"""Real-session snapshots and automatic process-owned MCP gameplay."""
 import json
 import pickle
 
@@ -8,9 +8,9 @@ import pytest
 from support import (bench, board, capture_committed_state, client, install_units,
                      memory_client, session_fixture, assert_committed_state_unchanged)
 from tft_mcp.session import GameSession, SessionError
-from tft_mcp.tools import COMPACT_TOOLS
+from tft_mcp.tools import TOOLS
 from tft_mcp.tool_schemas import DECISION_SCHEMA
-from tft_mcp.transport import profile_configuration
+from tft_mcp.transport import seed_configuration
 
 
 def test_decision_one_freeze_pure_detached_and_native_economy(tmp_path, monkeypatch):
@@ -60,27 +60,23 @@ def test_idle_and_corrupt_shop_decisions_reject_without_mutation(tmp_path):
 
 
 @pytest.mark.parametrize('environment', [
-    {'TFT_MCP_PROFILE': ''}, {'TFT_MCP_PROFILE': 'unknown'},
-    *[{'TFT_MCP_PROFILE': 'compact', 'TFT_MCP_SEED': seed}
-      for seed in ('', '-1', '1.0', 'true', '2147483648', ' 0', '٠', '9' * 5000)],
-    {'TFT_MCP_PROFILE': 'compact'},
+    {}, *[{'TFT_MCP_SEED': seed} for seed in
+          ('', '-1', '1.0', 'true', '2147483648', ' 0', '٠', '9' * 5000)],
 ])
-def test_invalid_profile_configuration(environment):
+def test_invalid_seed_configuration(environment):
     with pytest.raises(ValueError):
-        profile_configuration(environment)
+        seed_configuration(environment)
 
 
-def test_profile_seeds_and_default():
-    assert profile_configuration({}) == ('default', None)
-    assert profile_configuration({'TFT_MCP_SEED': 'invalid'}) == ('default', None)
-    for raw, expected in [('0', 0), ('0001', 1), ('0' * 5000, 0), ('0' * 5000 + '2147483647', 2147483647)]:
-        assert profile_configuration({'TFT_MCP_PROFILE': 'compact', 'TFT_MCP_SEED': raw}) == ('compact', expected)
+def test_seed_configuration_accepts_canonical_range_and_long_leading_zeroes():
+    for raw, expected in [('0', 0), ('0001', 1), ('2147483647', 2147483647),
+                          ('0' * 5000, 0), ('0' * 5000 + '2147483647', 2147483647)]:
+        assert seed_configuration({'TFT_MCP_SEED': raw}) == expected
 
 
 @pytest.mark.anyio
 async def test_invalid_configuration_does_not_construct_session(monkeypatch):
     from tft_mcp import transport
-    monkeypatch.setenv('TFT_MCP_PROFILE', 'compact')
     monkeypatch.delenv('TFT_MCP_SEED', raising=False)
     def forbidden(*args):
         pytest.fail('Invalid configuration constructed a simulator session')
@@ -90,15 +86,13 @@ async def test_invalid_configuration_does_not_construct_session(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_compact_action_families_and_strict_omitted_tools(tmp_path, monkeypatch):
+async def test_action_families_and_strict_omitted_tools(tmp_path):
     session = session_fixture(tmp_path)
     player = install_units(session, bench=[(0, 'garen', 1, [])], offer='vayne')
     player.item_bench[0] = 'bf_sword'
-    monkeypatch.setenv('TFT_MCP_PROFILE', 'compact')
-    monkeypatch.setenv('TFT_MCP_SEED', '0')
     async with memory_client(session) as sdk:
         schemas = {tool.name: tool.outputSchema for tool in (await sdk.list_tools()).tools}
-        assert set(schemas) == COMPACT_TOOLS and len(schemas) == 16
+        assert set(schemas) == {tool.name for tool in TOOLS} and len(schemas) == 16
         for name in ('start_game', 'close_game', 'get_game_status', 'get_shop', 'get_trait_champions'):
             before = pickle.dumps(session.game)
             error = await sdk.call_tool(name, {})
@@ -125,11 +119,9 @@ async def test_compact_action_families_and_strict_omitted_tools(tmp_path, monkey
 
 @pytest.mark.anyio
 @pytest.mark.parametrize('failure', ['projection', 'schema'])
-async def test_compact_post_action_decision_failure_rolls_back(tmp_path, monkeypatch, failure):
+async def test_post_action_decision_failure_rolls_back(tmp_path, monkeypatch, failure):
     session = session_fixture(tmp_path)
     install_units(session, offer='garen')
-    monkeypatch.setenv('TFT_MCP_PROFILE', 'compact')
-    monkeypatch.setenv('TFT_MCP_SEED', '0')
     async with memory_client(session) as sdk:
         before = capture_committed_state(session)
         original = session.get_decision
@@ -153,12 +145,12 @@ async def test_compact_post_action_decision_failure_rolls_back(tmp_path, monkeyp
 
 
 @pytest.mark.anyio
-async def test_compact_production_full_lobby_snapshot_and_shutdown(tmp_path):
-    async with client(tmp_path, TFT_MCP_PROFILE='compact', TFT_MCP_SEED='0') as sdk:
+async def test_production_full_lobby_snapshot_and_shutdown(tmp_path):
+    async with client(tmp_path, TFT_MCP_SEED='0') as sdk:
         tools = {tool.name: tool for tool in (await sdk.list_tools()).tools}
-        assert set(tools) == COMPACT_TOOLS
+        assert set(tools) == {tool.name for tool in TOOLS}
         initialized = await sdk.initialize()
-        assert 'a seeded game already runs' in initialized.instructions[:512]
+        assert 'A seeded game already runs' in initialized.instructions[:512]
         assert '14 actions' in initialized.instructions[:512]
         first = await sdk.call_tool('get_decision', {})
         assert not first.isError and first.structuredContent['status']['state'] == 'running'
@@ -179,7 +171,7 @@ async def test_compact_production_full_lobby_snapshot_and_shutdown(tmp_path):
         players = (await sdk.call_tool('get_players', {})).structuredContent['players']
         assert sorted(row['placement'] for row in players) == list(range(1, 9))
     records = [json.loads(line) for line in (tmp_path / 'audit.jsonl').read_text().splitlines()]
-    assert records[0]['event'] == 'profile_start'
+    assert records[0]['event'] == 'process_start' and records[0]['seed'] == 0
     starts = [row for row in records if row['event'] == 'game_started']
     assert len(starts) == 1 and starts[0]['seed'] == 0
     assert records[-1]['event'] == 'game_closed'

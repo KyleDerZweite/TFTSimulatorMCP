@@ -4,7 +4,7 @@ from support import client
 
 
 @pytest.mark.anyio
-async def test_idle_champion_search_and_filters(tmp_path):
+async def test_champion_search_and_filters(tmp_path):
     async with client(tmp_path) as session:
         result = await session.call_tool('search_champions', {'query': 'JAR', 'cost': 2, 'trait_id': 'keeper'})
         assert not result.isError
@@ -37,7 +37,7 @@ async def test_trait_rules_search_and_membership(tmp_path):
         assert ninja['activation'] == 'exact'
         assert ninja['effects']['AD'] == [0, 50, 140]
         assert ninja['champion_ids'] == ['akali', 'kennen', 'shen', 'zed']
-        members = (await session.call_tool('get_trait_champions', {'trait_id': 'ninja'})).structuredContent
+        members = (await session.call_tool('search_champions', {'trait_id': 'ninja'})).structuredContent
         assert [champion['champion_id'] for champion in members['champions']] == ninja['champion_ids']
         fortune = (await session.call_tool('get_trait', {'trait_id': 'fortune'})).structuredContent
         assert 'fortune_returns' in fortune['effects']
@@ -49,7 +49,7 @@ async def test_trait_rules_search_and_membership(tmp_path):
 async def test_catalog_discovery_strict_inputs_and_empty_filters(tmp_path):
     async with client(tmp_path) as session:
         tools = {tool.name: tool for tool in (await session.list_tools()).tools}
-        names = {'search_champions', 'get_champion', 'search_traits', 'get_trait', 'get_trait_champions'}
+        names = {'search_champions', 'get_champion', 'search_traits', 'get_trait'}
         assert names <= tools.keys()
         for name in names:
             assert tools[name].inputSchema['additionalProperties'] is False
@@ -57,7 +57,7 @@ async def test_catalog_discovery_strict_inputs_and_empty_filters(tmp_path):
         cases = [('search_champions', {'cost': value}) for value in [True, False, 1.0, 0, 6, '2', None]]
         cases += [('search_champions', {'trait_id': 'Ninja'}), ('search_champions', {'query': None}),
                   ('search_traits', {'query': 3}), ('search_traits', {'extra': 1})]
-        for name in ['get_champion', 'get_trait', 'get_trait_champions']:
+        for name in ['get_champion', 'get_trait']:
             field = 'champion_id' if name == 'get_champion' else 'trait_id'
             cases += [(name, {}), (name, {field: None}), (name, {field: 4}), (name, {field: 'ninja', 'extra': 1})]
         for name, arguments in cases:
@@ -67,11 +67,11 @@ async def test_catalog_discovery_strict_inputs_and_empty_filters(tmp_path):
             assert set(result.structuredContent['details']) == {'field', 'value'}
         assert (await session.call_tool('search_champions', {'cost': 1, 'trait_id': 'ninja'})).structuredContent == {'champions': []}
         assert (await session.call_tool('search_traits', {'query': 'unknown'})).structuredContent == {'traits': []}
-        for name in ['get_trait', 'get_trait_champions']:
+        for name in ['get_trait']:
             result = await session.call_tool(name, {'trait_id': 'Ninja'})
             assert result.isError
             assert result.structuredContent == {'code': 'unknown_trait', 'message': 'Unknown trait: Ninja.', 'details': {'trait_id': 'Ninja'}}
-        assert (await session.call_tool('get_game_status', {})).structuredContent['state'] == 'idle'
+        assert (await session.call_tool('get_decision', {})).structuredContent['status']['state'] == 'running'
 
 
 def test_all_catalog_definitions_are_source_consistent_and_reads_are_pure():
@@ -132,12 +132,12 @@ def test_all_catalog_definitions_are_source_consistent_and_reads_are_pure():
 @pytest.mark.anyio
 async def test_catalog_queries_preserve_running_status(tmp_path):
     async with client(tmp_path) as session:
-        started = await session.call_tool('start_game', {'seed': 123})
+        started = await session.call_tool('get_decision', {})
         for name, arguments in [('search_champions', {}), ('get_champion', {'champion_id': 'jarvaniv'}),
                                 ('search_traits', {}), ('get_trait', {'trait_id': 'fortune'}),
-                                ('get_trait_champions', {'trait_id': 'keeper'})]:
+                                ('search_champions', {'trait_id': 'keeper'})]:
             assert not (await session.call_tool(name, arguments)).isError
-        assert (await session.call_tool('get_game_status', {})).structuredContent == started.structuredContent
+        assert (await session.call_tool('get_decision', {})).structuredContent == started.structuredContent
 
 
 @pytest.mark.anyio
@@ -147,7 +147,7 @@ async def test_tools_describe_installed_simulator_without_set_selector(tmp_path)
         for tool in (await session.list_tools()).tools:
             assert re.search(r'\bset\s*\d+\b', tool.description, re.IGNORECASE) is None
             assert not {'set', 'set_id', 'set_number'} & set(tool.inputSchema.get('properties', {}))
-        result = await session.call_tool('start_game', {'seed': 0, 'set': 4})
+        result = await session.call_tool('get_decision', {'set': 4})
         assert result.isError
         assert result.structuredContent['code'] == 'invalid_input'
 

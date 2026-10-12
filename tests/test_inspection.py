@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from tft_mcp.session import GameSession, SessionError, freeze_player
-from support import INSPECTION_TOOLS, started_session as started
+from support import NATIVE_INSPECTION_TOOLS as INSPECTION_TOOLS, native_inspection_schemas, started_session as started
 
 
 
@@ -42,8 +42,7 @@ def test_native_special_units_use_container_locations_and_detached_allowlist(tmp
     assert azir.sandguard_overlord_coordinates == [(6, 1)]
     import json
     from jsonschema import validate
-    from tft_mcp.tools import TOOLS
-    schemas = {tool.name: tool.outputSchema for tool in TOOLS}
+    schemas = native_inspection_schemas()
     for name in INSPECTION_TOOLS:
         validate(json.loads(json.dumps(getattr(session, name)())), schemas[name])
 

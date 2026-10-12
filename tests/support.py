@@ -17,14 +17,16 @@ import numpy as np
 from tft_mcp.session import GameSession
 
 
-INSPECTION_TOOLS = ('get_board', 'get_bench', 'get_shop', 'get_items', 'get_economy', 'get_traits', 'get_round')
+INSPECTION_TOOLS = ('get_decision', 'get_board', 'get_players')
+NATIVE_INSPECTION_TOOLS = ('get_board', 'get_bench', 'get_shop', 'get_items', 'get_economy', 'get_traits', 'get_round')
 
 
 @asynccontextmanager
 async def client(tmp_path, **environment):
     env = dict(os.environ)
     env.pop("APPIMAGE", None)
-    env.update({"TFT_MCP_PROFILE": "default", "TFT_MCP_AUDIT_PATH": str(tmp_path / "audit.jsonl"),
+    env.pop("TFT_MCP_PROFILE", None)
+    env.update({"TFT_MCP_SEED": "0", "TFT_MCP_AUDIT_PATH": str(tmp_path / "audit.jsonl"),
                 "TFT_MCP_NATIVE_LOG_DIR": str(tmp_path / "native")})
     env.update(environment)
     command = os.environ.get("TFT_MCP_TEST_COMMAND")
@@ -148,10 +150,9 @@ async def memory_client(session):
     """Exercise production SDK registration with a preconfigured real session."""
     import tft_mcp.transport as transport
 
-    profile, _ = transport.profile_configuration(os.environ)
     async with create_client_server_memory_streams() as (client_streams, server_streams):
         async with anyio.create_task_group() as tasks:
-            tasks.start_soon(transport.run_session, session, profile, *server_streams)
+            tasks.start_soon(transport.run_session, session, *server_streams)
             try:
                 async with ClientSession(*client_streams) as sdk:
                     await sdk.initialize()
@@ -195,3 +196,16 @@ def assert_native_aliases(game):
             assert game.player_manager.observation_states[key].player is player
             assert game.player_manager.action_handlers[key].player is player
             assert player.pool_obj is game.pool_obj
+
+
+def native_inspection_schemas():
+    """Validate direct adapter projections independently of protocol discovery."""
+    from tft_mcp import tool_schemas as schemas
+    properties = {
+        'get_board': schemas.BOARD_PROPERTIES, 'get_bench': schemas.BENCH_PROPERTIES,
+        'get_shop': schemas.SHOP_PROPERTIES, 'get_items': schemas.INVENTORY_PROPERTIES,
+        'get_economy': schemas.ECONOMY_PROPERTIES, 'get_traits': schemas.OWN_TRAIT_PROPERTIES,
+        'get_round': {'game_id': {'type': 'string'}, 'round': {'type': 'integer'}},
+    }
+    return {name: {'type': 'object', 'properties': fields, 'required': list(fields),
+                   'additionalProperties': False} for name, fields in properties.items()}
