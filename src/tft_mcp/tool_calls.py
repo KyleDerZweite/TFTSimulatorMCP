@@ -8,7 +8,7 @@ from mcp.types import CallToolResult, TextContent
 
 from tft_mcp.errors import SessionError
 from tft_mcp.session import GameSession
-from tft_mcp.tools import ACTION_TOOLS, profile_tools
+from tft_mcp.tools import ACTION_TOOLS, TOOLS
 
 
 def validate_arguments(name, arguments):
@@ -24,18 +24,14 @@ def validate_arguments(name, arguments):
     elif name == "sell_unit":
         from tft_mcp.action_helpers import validate_sell_arguments
         validate_sell_arguments(arguments)
-    elif name == "start_game":
-        if set(arguments) != {"seed"} or type(arguments.get("seed")) is not int or not 0 <= arguments["seed"] <= 2147483647:
-            raise SessionError("invalid_input", "start_game requires only seed, an integer from 0 through 2147483647.",
-                               {"tool": name})
-    elif name in {"get_decision", "get_game_status", "close_game", "end_turn", "refresh_shop", "buy_xp", "get_bench", "get_shop", "get_items", "get_economy", "get_round", "get_players"}:
+    elif name in {"get_decision", "end_turn", "refresh_shop", "buy_xp", "get_players"}:
         if arguments:
             raise SessionError("invalid_input", f"{name} takes no arguments.", {"tool": name})
-    elif name in {"get_board", "get_traits"}:
+    elif name == "get_board":
         validate_catalog_arguments(arguments, {"player_id"})
     elif name == "search_traits":
         validate_catalog_arguments(arguments, {"query"})
-    elif name in {"get_trait", "get_trait_champions"}:
+    elif name == "get_trait":
         validate_catalog_arguments(arguments, {"trait_id"}, {"trait_id"})
     elif name == "get_champion":
         validate_catalog_arguments(arguments, {"champion_id"}, {"champion_id"})
@@ -71,10 +67,9 @@ def validate_catalog_arguments(arguments, allowed, required=()):
 class ToolCalls:
     """Own protocol serialization outside the transaction's copied game graph."""
 
-    def __init__(self, session: GameSession, profile):
+    def __init__(self, session: GameSession):
         self.session = session
-        self.profile = profile
-        self.tools = profile_tools(profile)
+        self.tools = TOOLS
         self.available = {tool.name: tool for tool in self.tools}
         self.lock = anyio.Lock()
 
@@ -82,20 +77,16 @@ class ToolCalls:
         return self.tools
 
     async def call_tool(self, name, arguments):
-        session, profile, available = self.session, self.profile, self.available
+        session, available = self.session, self.available
         async with self.lock:
             try:
                 if name not in available:
-                    raise SessionError("invalid_input", "Tool is unavailable in this profile.", {"tool": name, "profile": profile})
+                    raise SessionError("invalid_input", "Unknown tool.", {"tool": name})
                 validate_arguments(name, arguments)
                 with session.lifecycle_transaction():
                     session.record("tool_request", tool=name, arguments=arguments, game_id=session.game_id)
-                    if name == "start_game":
-                        result = session.start_game(arguments["seed"])
-                    elif name == "get_decision":
+                    if name == "get_decision":
                         result = session.get_decision()
-                    elif name == "get_game_status":
-                        result = session.get_game_status()
                     elif name == "refresh_shop":
                         result = session.refresh_shop(**arguments)
                     elif name == "buy_xp":
@@ -113,26 +104,12 @@ class ToolCalls:
 
                     elif name == "get_players":
                         result = session.get_players()
-                    elif name == "get_round":
-                        result = session.get_round()
-                    elif name == "get_traits":
-                        result = session.get_traits(**arguments)
-                    elif name == "get_economy":
-                        result = session.get_economy()
-                    elif name == "get_items":
-                        result = session.get_items()
-                    elif name == "get_shop":
-                        result = session.get_shop()
-                    elif name == "get_bench":
-                        result = session.get_bench()
                     elif name == "get_board":
                         result = session.get_board(**arguments)
                     elif name == "search_traits":
                         result = session.search_traits(**arguments)
                     elif name == "get_trait":
                         result = session.get_trait(**arguments)
-                    elif name == "get_trait_champions":
-                        result = session.get_trait_champions(**arguments)
                     elif name == "get_champion":
                         result = session.get_champion(**arguments)
                     elif name == "search_champions":
@@ -142,11 +119,9 @@ class ToolCalls:
                         result = session.search_items(**arguments)
                     elif name == "get_item":
                         result = session.get_item(arguments["item_id"])
-                    elif name == "close_game":
-                        result = session.close_game()
                     else:
                         raise SessionError("internal_error", "Registered tool has no session operation.", {"tool": name})
-                    if profile == "compact" and name in ACTION_TOOLS:
+                    if name in ACTION_TOOLS:
                         decision = session.get_decision()
                         result = decision if name == "end_turn" else {"receipt": result, "decision": decision}
                     schema = available[name].outputSchema

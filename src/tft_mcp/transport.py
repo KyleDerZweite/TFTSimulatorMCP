@@ -9,44 +9,31 @@ from tft_mcp.session import GameSession
 from tft_mcp.tool_calls import ToolCalls
 
 
-def profile_configuration(environment):
-    profile = environment.get("TFT_MCP_PROFILE", "default")
-    if profile not in {"default", "compact"}:
-        raise ValueError("TFT_MCP_PROFILE must be default or compact.")
-    seed = None
-    if profile == "compact":
-        raw = environment.get("TFT_MCP_SEED", "")
-        if not raw or not raw.isascii() or not raw.isdecimal():
-            raise ValueError("Compact profile requires TFT_MCP_SEED as decimal digits in 0..2147483647.")
-        canonical = raw.lstrip("0") or "0"
-        if len(canonical) > 10 or int(canonical) > 2147483647:
-            raise ValueError("TFT_MCP_SEED must be in 0..2147483647.")
-        seed = int(canonical)
-    return profile, seed
+def seed_configuration(environment):
+    raw = environment.get("TFT_MCP_SEED", "")
+    if not raw or not raw.isascii() or not raw.isdecimal():
+        raise ValueError("TFT_MCP_SEED requires decimal digits in 0..2147483647.")
+    canonical = raw.lstrip("0") or "0"
+    if len(canonical) > 10 or int(canonical) > 2147483647:
+        raise ValueError("TFT_MCP_SEED must be in 0..2147483647.")
+    return int(canonical)
 
 
-def server_instructions(profile):
-    lifecycle_instruction = (
-        "Compact process: a seeded game already runs and closes at shutdown. Actions return receipt and decision; "
-        "end_turn returns the next decision directly. " if profile == "compact" else
-        "Default process: starts idle. Call start_game with an explicit seed before inspecting a game. "
-    )
-    instructions = lifecycle_instruction + (
-        "Control player_0 against seven baselines. Read get_decision and use actual post-action observations. "
-        "Reads and rejections are free; planning allows 14 actions. Call end_turn to run combat. "
-        "Continue until status.state is terminal and outcome.lobby_complete is true. "
-        "After controlled elimination, baselines finish the remaining lobby automatically. "
-        "Missing owned board, bench and inventory slots are empty; indices stay exact. "
-        "No fixed duration or current live TFT rules are assumed. Query installed definitions as needed. "
-        "Board x=0..6 left to right, y=0..3 bottom to top; bench 0..8, shop 0..4, items 0..9."
-    )
-    return instructions
+SERVER_INSTRUCTIONS = (
+    "A seeded game already runs. You control player_0 against seven baselines. "
+    "get_decision reads your visible state. Actions return receipt and updated decision; "
+    "end_turn runs combat and returns the next decision. Reads and rejected actions are free. "
+    "Planning allows 14 actions, then requires end_turn. Finish when status.state is terminal "
+    "and status.outcome.lobby_complete is true. Empty owned slots are omitted; indices stay exact. "
+    "Board x=0..6 left to right, y=0..3 bottom to top; bench 0..8, shop 0..4, items 0..9. "
+    "Rule lookups describe the installed simulator. Shutdown closes the game."
+)
 
 
-async def run_session(session, profile, read_stream, write_stream):
+async def run_session(session, read_stream, write_stream):
     """Run and close a concrete session over actual SDK-provided streams."""
-    server = Server("tft-mcp-server", instructions=server_instructions(profile))
-    calls = ToolCalls(session, profile)
+    server = Server("tft-mcp-server", instructions=SERVER_INSTRUCTIONS)
+    calls = ToolCalls(session)
     server.list_tools()(calls.list_tools)
     server.call_tool(validate_input=False)(calls.call_tool)
     try:
@@ -60,11 +47,10 @@ async def run_session(session, profile, read_stream, write_stream):
 
 
 async def serve():
-    profile, seed = profile_configuration(os.environ)
+    seed = seed_configuration(os.environ)
     session = GameSession(os.environ.get("TFT_MCP_AUDIT_PATH"), os.environ.get("TFT_MCP_NATIVE_LOG_DIR"))
-    if profile == "compact":
-        with session.lifecycle_transaction():
-            session.record("profile_start", profile=profile, seed=seed)
-            session.start_game(seed)
+    with session.lifecycle_transaction():
+        session.record("process_start", seed=seed)
+        session.start_game(seed)
     async with stdio_server() as (read_stream, write_stream):
-        await run_session(session, profile, read_stream, write_stream)
+        await run_session(session, read_stream, write_stream)
