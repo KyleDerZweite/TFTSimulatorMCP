@@ -19,3 +19,15 @@ Codex termination skipped the graceful close audit callback. Terminal gameplay w
 No GitHub CI workflow, strength benchmark or authenticated Claude gameplay was checked. A completed game establishes usability, not improved playing strength.
 
 Silver's feedback produced automatic lifecycle, shared observations, smaller modules and state after actions. `end_turn` remains a model decision. Codex owns the tool loop; Qwen-specific research adds no runtime requirement for this target. [Set 4 sources](set4-sources.md) remain a future offline-data foundation.
+
+## Fork-Prüfung vom 2026-10-18
+
+Verglichen wurden Main `e31c461a89ae5e84ed62d9f03953ab4ee2605186` und [Silvers Fork](https://github.com/silverlight6/TFTSimulatorMCP/commit/0effceb0fddaff0fdebd42865930ed144f61d1ae). Vier GPT-6.1-Sol-Subagents mit High Reasoning prüften Standards, SPEC und die vier Zukunftsoptionen. Empfehlung: derzeit keinen Fork-Code übernehmen.
+
+Standards: Die gelöschte Mechanics-Skill fehlt beim dokumentierten Setup. Das gebaute Wheel enthält die Comp-Tools, aber keine SQLite-Datenbank. Eine Kollision zwischen Transcript- und Auditpfad beschädigt reproduzierbar das JSONL-Audit. Der neue Log-Cleanup löscht andere Kopien ohne Inhaltsprüfung.
+
+SPEC: Observation-Format, Action-Limit, Single-Player-Modus und neue Tools ändern den bestehenden Vertrag. Preflight-Prüfungen und Postconditions entfallen. Der Simulator-Pin ändert außerdem Spielregeln. Diese Änderungen brauchen getrennte Entscheidungen und Acceptance.
+
+Geprüfter Simulator: `a197a2a5bfab26c2900ac77e7b48c349efc14016`, Source-SHA-256 `5d0b5b8f3bcf42818e51af5fb457aa27c7a35456351795abd1d9ef0bb2ef53f8`. Unveränderte Installation in einem separaten Target, übrige Dependencies aus der bisherigen Testumgebung, Python 3.14.7. Der Checkout-Test mit `PYTHONPATH` ergab für `tests/test_single_player.py -q --maxfail=1` **2 passed, 1 failed**: `actions_taken` fehlt. Weitere benötigte Methoden wie `campaign_schedule` fehlen ebenfalls. Wheel-Build und Inhaltsprüfung wurden ausgeführt. Der erste Build-Versuch scheiterte an fehlendem pip; `uv build --wheel` gelang.
+
+Vollständige Suite, frische installierte SDK-Acceptance und native Modellspiele für den Fork wurden nicht ausgeführt. Das ist keine Installed-Acceptance. Evidence mit Identitäten, Ausgaben und Reproduktionsbefehlen: `/home/kyle/.local/share/tft-simulator-mcp/fork-review-20261018-jrbhu1p0/`. Stream-Logging bleibt nach Fehlerkorrekturen separat prüfenswert.
