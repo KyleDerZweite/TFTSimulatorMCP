@@ -16,15 +16,16 @@ from tft_mcp.tool_schemas import STATUS_SCHEMA
 async def test_production_discovery_and_running_game(tmp_path):
     async with client(tmp_path) as sdk:
         tools = (await sdk.list_tools()).tools
-        assert len(tools) == 16
+        assert len(tools) == 20
         assert {tool.name for tool in tools} == {
             'get_decision', 'get_board', 'get_players', 'search_champions',
-            'get_champion', 'search_traits', 'get_trait', 'search_items', 'get_item',
+            'get_champion', 'get_champion_pool', 'search_traits', 'get_trait', 'search_items', 'get_item',
+            'search_comps_by_champions', 'search_comps_by_trait', 'search_champion_items',
             'buy_unit', 'sell_unit', 'move_unit', 'equip_item', 'refresh_shop', 'buy_xp', 'end_turn'}
         decision = (await sdk.call_tool('get_decision', {})).structuredContent
-        assert decision['status']['state'] == 'running'
-        assert decision['status']['round'] == 1
-        assert decision['status']['planning_budget'] == {'capacity': 14, 'remaining': 14}
+        assert decision['start_turn'] is True and decision['terminal'] is False
+        assert decision['text'].startswith('round 1\n')
+        assert any(command['action_type'] == 0 for command in decision['mask'])
 
 
 @pytest.mark.anyio
@@ -33,7 +34,7 @@ async def test_strict_inputs_omitted_tools_and_process_restart(tmp_path):
     for _ in range(2):
         async with client(tmp_path, TFT_MCP_SEED='2147483647') as sdk:
             initial = (await sdk.call_tool('get_decision', {})).structuredContent
-            identities.append(initial['status']['game_id'])
+            identities.append((await sdk.call_tool('get_players', {})).structuredContent['game_id'])
             for name, arguments in [
                 ('start_game', {'seed': 0}), ('close_game', {}), ('get_game_status', {}),
                 ('get_shop', {}), ('get_bench', {}), ('get_items', {}), ('get_economy', {}),
@@ -126,16 +127,9 @@ async def test_invalid_output_rolls_back_before_sdk_error(tmp_path, monkeypatch,
         accepted_audit = session.audit_path.read_bytes()
         method = getattr(GameSession, tool)
         def invalid(current, *args, **kwargs):
-            result = method(current, *args, **kwargs)
-            if tool == 'end_turn':
-                return result
-            return {**result, 'unexpected': True}
+            return {**method(current, *args, **kwargs), 'unexpected': True}
         with monkeypatch.context() as patch:
-            if tool == 'end_turn':
-                original = session.get_decision
-                patch.setattr(session, 'get_decision', lambda: {**original(), 'unexpected': True})
-            else:
-                patch.setattr(GameSession, tool, invalid)
+            patch.setattr(GameSession, tool, invalid)
             result = await sdk.call_tool(tool, arguments)
         assert result.isError and result.structuredContent['code'] == 'internal_error'
         assert result.structuredContent['message'] == 'Tool output does not match its schema.'
@@ -148,12 +142,13 @@ async def test_invalid_output_rolls_back_before_sdk_error(tmp_path, monkeypatch,
         assert (await sdk.call_tool('get_decision')).structuredContent == status
         retry = await sdk.call_tool(tool, arguments)
         assert not retry.isError
-        current = retry.structuredContent if tool == 'end_turn' else retry.structuredContent['decision']
+        current = retry.structuredContent
         if tool == 'end_turn':
-            assert current['status']['round'] > status['status']['round']
+            assert current['start_turn'] is True and 'round 2' in current['text'].splitlines()
+            assert current['text'].startswith('action succeeded\n')
         else:
-            assert current['status']['planning_budget']['remaining'] == 13
-            assert session.get_shop()['slots'][0]['unit'] is None
+            assert current['text'].startswith('action succeeded') and current['start_turn'] is False
+            assert session.game.player_manager.player_states['player_0'].shop_champions[0] is None
 
 
 @pytest.mark.parametrize('operation', ['start', 'close'])
@@ -183,7 +178,7 @@ def test_protocol_stdout_is_json_and_malformed_envelopes_are_native_errors(tmp_p
     import select
     import subprocess
     environment = dict(os.environ, TFT_MCP_SEED='0', TFT_MCP_AUDIT_PATH=str(tmp_path / 'audit.jsonl'),
-                       TFT_MCP_NATIVE_LOG_DIR=str(tmp_path / 'native'))
+                       TFT_MCP_NATIVE_LOG_DIR=str(tmp_path / 'native'), TFT_MCP_STREAM_LOG='off')
     environment.pop('APPIMAGE', None)
     command = os.environ.get('TFT_MCP_TEST_COMMAND')
     if command:
@@ -212,7 +207,8 @@ def test_protocol_stdout_is_json_and_malformed_envelopes_are_native_errors(tmp_p
             assert malformed['error']['code'] == -32602
             decision = request({'jsonrpc': '2.0', 'id': 3, 'method': 'tools/call', 'params': {
                 'name': 'get_decision', 'arguments': {}}})
-            assert decision['result']['structuredContent']['status']['state'] == 'running'
+            content = decision['result']['structuredContent']
+            assert content['start_turn'] is True and content['text'].startswith('round 1\n')
         finally:
             process.stdin.close()
             process.wait(timeout=15)

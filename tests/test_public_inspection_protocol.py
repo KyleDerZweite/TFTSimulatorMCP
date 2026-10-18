@@ -22,12 +22,12 @@ async def test_public_players_are_discoverable_strict_and_available_while_proces
         assert tool.outputSchema["properties"]["players"]["items"]["additionalProperties"] is False
         result = await session.call_tool("get_players", {"player_id": "player_1"})
         assert result.isError and result.structuredContent["code"] == "invalid_input"
-        started = (await session.call_tool("get_decision", {})).structuredContent["status"]
+        started = (await session.call_tool("get_players", {})).structuredContent
         result = await session.call_tool("get_players", {})
         assert not result.isError
         assert result.structuredContent == {"game_id": started["game_id"], "players": [
             {"player_id": f"player_{index}", "controlled": index == 0, "status": "alive",
-             "health": 100, "level": 1, "placement": None} for index in range(8)]}
+             "health": 100, "level": 3, "placement": None} for index in range(8)]}
 
 
 @pytest.mark.anyio
@@ -59,7 +59,7 @@ async def test_terminal_public_list_and_removed_winner_preserve_own_categories(t
         initial = (await session.call_tool('get_players', {})).structuredContent
         observed_removal = False
         for _ in range(30):
-            status = (await session.call_tool('end_turn', {})).structuredContent['status']
+            observed = (await session.call_tool('end_turn', {})).structuredContent
             public = (await session.call_tool('get_players', {})).structuredContent
             assert [row['player_id'] for row in public['players']] == [row['player_id'] for row in initial['players']]
             for row in public['players']:
@@ -67,9 +67,9 @@ async def test_terminal_public_list_and_removed_winner_preserve_own_categories(t
                     observed_removal = True
                     result = await session.call_tool('get_board', {'player_id': row['player_id']})
                     assert result.isError and result.structuredContent['code'] == 'player_eliminated'
-            if status['state'] == 'terminal':
+            if observed['terminal']:
                 break
-        assert status['state'] == 'terminal' and observed_removal
+        assert observed['terminal'] is True and observed_removal
         assert sorted(row['placement'] for row in public['players']) == list(range(1, 9))
         winner = next(row for row in public['players'] if row['status'] == 'winner')
         assert winner['placement'] == 1 and not winner['controlled']
@@ -81,15 +81,17 @@ async def test_terminal_public_list_and_removed_winner_preserve_own_categories(t
             assert 'get_players' in result.structuredContent['message']
             own = await session.call_tool(name, {})
             assert not own.isError
-            assert own.structuredContent['round'] < status['round']
+            from support import observation_round
+            live_round = observation_round(observed['text'])
+            assert own.structuredContent['round'] < live_round
         assert (await session.call_tool('get_players', {})).structuredContent == public
-        assert (await session.call_tool('get_decision', {})).structuredContent['status'] == status
+        assert (await session.call_tool('get_decision', {})).structuredContent == observed
 
 
 @pytest.mark.anyio
 async def test_failed_public_audit_preserves_game_and_allows_retry(tmp_path):
     async with client(tmp_path) as session:
-        status = (await session.call_tool('get_decision', {})).structuredContent['status']
+        decision = (await session.call_tool('get_decision', {})).structuredContent
         calls = [('get_players', {}), ('get_board', {'player_id': 'player_1'})]
         expected = [(await session.call_tool(name, args)).structuredContent for name, args in calls]
         audit = tmp_path / 'audit.jsonl'
@@ -103,4 +105,4 @@ async def test_failed_public_audit_preserves_game_and_allows_retry(tmp_path):
         audit.write_bytes(saved)
         for (name, args), result in zip(calls, expected):
             assert (await session.call_tool(name, args)).structuredContent == result
-        assert (await session.call_tool('get_decision', {})).structuredContent['status'] == status
+        assert (await session.call_tool('get_decision', {})).structuredContent == decision

@@ -71,7 +71,7 @@ async def test_catalog_discovery_strict_inputs_and_empty_filters(tmp_path):
             result = await session.call_tool(name, {'trait_id': 'Ninja'})
             assert result.isError
             assert result.structuredContent == {'code': 'unknown_trait', 'message': 'Unknown trait: Ninja.', 'details': {'trait_id': 'Ninja'}}
-        assert (await session.call_tool('get_decision', {})).structuredContent['status']['state'] == 'running'
+        assert (await session.call_tool('get_decision', {})).structuredContent['start_turn'] is True
 
 
 def test_all_catalog_definitions_are_source_consistent_and_reads_are_pure():

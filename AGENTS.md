@@ -1,6 +1,6 @@
 # TFTSimulatorMCP
 
-Read SPEC.md before implementation and GLOSSARY.md for domain terms. This repository owns the MCP server, documentation and tests. Use ordinary Python and the existing concrete adapter; do not add a generic dispatcher or provider framework.
+Read SPEC.md before implementation, GLOSSARY.md for domain terms, and docs/mcp-host-contract.md before changing how agents receive tools. This repository owns the MCP server, documentation and tests. Use ordinary Python and the existing concrete adapter; do not add a generic dispatcher or provider framework.
 
 The installed simulator is an external dependency. Do not vendor or modify Simulator code, rules or defaults. Rules come from its installed definitions without a fixed set label, set selector or copied catalog. Pin the tested upstream Git revision and verify installed source identity.
 

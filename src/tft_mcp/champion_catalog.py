@@ -14,6 +14,14 @@ def champion_summary(champion_id):
             'traits': list(origin_class_stats.origin_class[champion_id])}
 
 
+def pool_size(champion_id):
+    """Installed starting copies for one champion."""
+    for table in (pool_stats.COST_1, pool_stats.COST_2, pool_stats.COST_3, pool_stats.COST_4, pool_stats.COST_5):
+        if champion_id in table:
+            return table[champion_id]
+    raise KeyError(champion_id)
+
+
 def search_champions(query='', cost=None, trait_id=None):
     return {'champions': [champion_summary(name) for name in sorted(stats.BASE_CHAMPION_LIST)
                          if query.lower() in name.lower()

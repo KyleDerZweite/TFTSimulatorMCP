@@ -26,9 +26,12 @@ async def client(tmp_path, **environment):
     env = dict(os.environ)
     env.pop("APPIMAGE", None)
     env.pop("TFT_MCP_PROFILE", None)
+    env.pop("TFT_MCP_STREAM_LOG", None)
+    env.pop("TFT_MCP_MODE", None)
     env.update({"TFT_MCP_SEED": "0", "TFT_MCP_AUDIT_PATH": str(tmp_path / "audit.jsonl"),
                 "TFT_MCP_NATIVE_LOG_DIR": str(tmp_path / "native")})
     env.update(environment)
+    env.setdefault("TFT_MCP_STREAM_LOG", "off")
     command = os.environ.get("TFT_MCP_TEST_COMMAND")
     if command:
         env.pop("PYTHONPATH", None)
@@ -90,6 +93,11 @@ def install_units(session, bench=(), board=(), offer='garen', chosen=False):
         player.shop[0] = f'{offer}_{chosen}_c' if chosen else offer
         player.shop_champions[0] = unit
     return player
+
+
+def observation_round(text):
+    line = next(line for line in text.splitlines() if line.startswith("round "))
+    return int(line.split()[1])
 
 
 def board(x, y):

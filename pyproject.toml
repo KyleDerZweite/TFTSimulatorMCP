@@ -9,7 +9,7 @@ description = "Local stdio MCP tools for the installed TFT simulator"
 requires-python = ">=3.10"
 readme = "README.md"
 license = {file = "LICENSE"}
-dependencies = ["mcp>=1.30,<2", "anyio>=4.5", "jsonschema>=4.20", "tft-simulator @ git+https://github.com/silverlight6/TFTMuZeroAgent.git@33c2c6eb873da1aaf319dc0c36bcbec1ad20c48d"]
+dependencies = ["mcp>=1.30,<2", "anyio>=4.5", "jsonschema>=4.20", "tft-simulator @ git+https://github.com/silverlight6/TFTMuZeroAgent.git@a197a2a5bfab26c2900ac77e7b48c349efc14016"]
 
 [project.urls]
 Repository = "https://github.com/KyleDerZweite/TFTSimulatorMCP"

@@ -2,10 +2,29 @@
 
 from copy import deepcopy
 
-from tft_mcp.action_helpers import (
-    board_locations, bench_locations, owned_locations, native_price, shop_offer_name,
-)
 from tft_mcp.errors import SessionError
+
+
+def board_locations(board):
+    return [({"kind": "board", "x": x, "y": y}, unit)
+            for x, column in enumerate(board) for y, unit in enumerate(column)]
+
+
+def bench_locations(bench):
+    return [({"kind": "bench", "slot": slot}, unit) for slot, unit in enumerate(bench)]
+
+
+def owned_locations(player):
+    return board_locations(player.board) + bench_locations(player.bench)
+
+
+def shop_offer_name(champion_id, chosen):
+    return f"{champion_id}_{chosen}_c" if chosen else champion_id
+
+
+def native_price(cost, stars):
+    from Simulator.game.pool_stats import cost_star_values
+    return cost_star_values[cost - 1][stars - 1]
 
 
 def action_snapshot(player):
@@ -21,6 +40,14 @@ def unit_changes(before, after):
 def item_changes(before, after):
     return [{"slot": slot, "before": old, "after": new}
             for slot, (old, new) in enumerate(zip(before["items"], after["items"], strict=True)) if old != new]
+
+
+def champion_copies(champion, champion_id):
+    """Pool copies of one visible unit: 3**(stars-1). Target dummies are excluded."""
+    unit = freeze_unit(champion)
+    if unit is None or unit["target_dummy"] or unit["champion"] != champion_id or unit["stars"] < 1:
+        return 0
+    return 3 ** (unit["stars"] - 1)
 
 
 def freeze_unit(champion):
