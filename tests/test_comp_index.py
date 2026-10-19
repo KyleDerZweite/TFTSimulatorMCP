@@ -29,7 +29,8 @@ def items_path(tmp_path):
     return path
 
 
-def index_of(tmp_path, items_path):
+@pytest.fixture
+def index(tmp_path, items_path):
     boards = board(['Ahri', 'Lulu'], {'Mage': 3}, [1] * 8 + [8, 8])
     boards += board(['Ahri', 'Lulu', 'Veigar'], {'Mage': 3}, [1, 1])
     boards += board(['Ahri', 'Lulu', 'Veigar'], {'Mage': 6}, [1, 1])
@@ -41,7 +42,8 @@ def index_of(tmp_path, items_path):
     return CompIndex(path)
 
 
-def test_builder_uses_external_catalog_without_reading_checkout_default(tmp_path, items_path, monkeypatch):
+@pytest.mark.parametrize('explicit_items', [False, True])
+def test_builder_uses_selected_item_catalog(tmp_path, items_path, monkeypatch, explicit_items):
     rows = json.loads(items_path.read_text())
     next(row for row in rows if row['id'] == 5)['name'] = 'External vest'
     items_path.write_text(json.dumps(rows))
@@ -49,23 +51,18 @@ def test_builder_uses_external_catalog_without_reading_checkout_default(tmp_path
     def unexpected_default():
         pytest.fail('An explicit catalog must not read the checkout default.')
 
-    monkeypatch.setattr(comp_index, 'default_items_path', unexpected_default)
+    monkeypatch.setattr(comp_index, 'default_items_path',
+                        unexpected_default if explicit_items else lambda: items_path)
+    options = {'items_path': str(items_path)} if explicit_items else {}
+    assert load_item_catalog(**options)[5] == ('External vest', 'chain_vest')
     path = tmp_path / 'external.sqlite'
-    build_boards(_ahri([5], 1, [1]), path, items_path=str(items_path))
+    build_boards(_ahri([5], 1, [1]), path, **options)
     index = CompIndex(path)
     result = index.search_champion_items('Ahri', ['chain_vest'])
     assert result['items'] == ['External vest']
     assert result['builds'][0]['items'] == ['External vest']
     assert result['builds'][0]['item_ids'] == ['chain_vest']
     assert dict(index.connection.execute('SELECT id, simulator_id FROM items')) == SIMULATOR_ITEM_IDS
-
-
-def test_builder_defaults_to_existing_catalog_path(tmp_path, items_path, monkeypatch):
-    monkeypatch.setattr(comp_index, 'default_items_path', lambda: items_path)
-    assert load_item_catalog()[5] == ('Chain Vest', 'chain_vest')
-    path = tmp_path / 'default.sqlite'
-    build_boards(_ahri([5], 1, [1]), path)
-    assert CompIndex(path).search_champion_items('Ahri')['builds'][0]['items'] == ['Chain Vest']
 
 
 @pytest.mark.parametrize('invalid', ['missing', 'duplicate', 'unknown'])
@@ -109,9 +106,8 @@ def test_ratio_rounds_half_up():
     assert rounded_ratio(10, 3, 2) == 3.33
 
 
-def test_champion_query_ranks_supersets_by_exact_win_rate(tmp_path, items_path):
-    index = index_of(tmp_path, items_path)
-    result = index.search_comps_by_champions(['ahri', 'Lulu'], 10)
+def test_champion_query_ranks_supersets_by_exact_win_rate(index):
+    result = index.search_comps_by_champions([' ahri ', 'Lulu'], 10)
     assert result['champions'] == ['Ahri', 'Lulu']
     assert result['win_definition'] == 'top4' and 'min_games' not in result
     assert [comp['champions'] for comp in result['comps']] == [
@@ -127,15 +123,10 @@ def test_champion_query_ranks_supersets_by_exact_win_rate(tmp_path, items_path):
     jsonschema.validate(result, COMP_CHAMPION_OUTPUT)
     assert index.search_comps_by_champions(['Ahri'], 1)['comps'][0]['champions'] == [
         'Ahri', 'Lulu', 'Veigar']
-    both = index.search_comps_by_champions(['Ahri', 'Lulu'], 10)
-    assert [comp['champions'] for comp in both['comps']] == [
-        ['Ahri', 'Lulu', 'Veigar'],
-        ['Ahri', 'Lulu'],
-    ]
+    assert index.search_comps_by_champions(['Ahri', 'Lulu'], 10) == result
 
 
-def test_equal_win_rates_prefer_more_games_then_alphabetical_names(tmp_path, items_path):
-    index = index_of(tmp_path, items_path)
+def test_equal_win_rates_prefer_more_games_then_alphabetical_names(index):
     result = index.search_comps_by_champions(['Ahri'], 2)
     assert [comp['champions'] for comp in result['comps']] == [
         ['Ahri', 'Lulu', 'Veigar'],
@@ -144,8 +135,7 @@ def test_equal_win_rates_prefer_more_games_then_alphabetical_names(tmp_path, ite
     assert all(comp['win_rate'] == 1.0 and comp['games'] == 4 for comp in result['comps'])
 
 
-def test_trait_level_is_the_exact_unit_count(tmp_path, items_path):
-    index = index_of(tmp_path, items_path)
+def test_trait_level_is_the_exact_unit_count(index):
     result = index.search_comps_by_trait('mage', 3, 10)
     assert result['trait'] == 'Mage' and result['level'] == 3
     assert [comp['champions'] for comp in result['comps']] == [
@@ -162,19 +152,10 @@ def test_trait_level_is_the_exact_unit_count(tmp_path, items_path):
     assert [comp['champions'] for comp in six['comps']] == [['Ahri', 'Lulu', 'Veigar']]
     assert six['comps'][0]['games'] == 2
     assert index.search_comps_by_trait('Mage', 9, 10)['comps'] == []
+    assert index.search_comps_by_trait('Mage', 3, 10) == result
 
 
-def test_repeated_queries_return_the_same_result(tmp_path, items_path):
-    index = index_of(tmp_path, items_path)
-    first = index.search_comps_by_champions(['Ahri'], 5)
-    second = index.search_comps_by_champions([' Ahri '], 5)
-    assert first == second
-    assert index.search_comps_by_trait('Mage', 3, 5) == index.search_comps_by_trait(
-        'Mage', 3, 5)
-
-
-def test_unknown_names_and_duplicates_are_errors(tmp_path, items_path):
-    index = index_of(tmp_path, items_path)
+def test_unknown_names_and_duplicates_are_errors(index):
     with pytest.raises(SessionError) as caught:
         index.search_comps_by_champions(['Ahri', 'Nope'], 1)
     assert caught.value.code == 'unknown_champion'

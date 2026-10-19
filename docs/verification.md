@@ -1,5 +1,15 @@
 # Verification
 
+## Test consolidation on 2026-10-19
+
+Tested MCP head `bb28c7c7e0bd6eaadd0caa5706d0c93f6f80c539` against base `d5a21f57f19c3eec503a6733cc28e5dd809116f3`. Single-player tests now share one module; logging and catalog tests share setup and overlapping journeys. Tests shrink by 127 lines. Both game modes, production modules and shared test helpers remain unchanged.
+
+The four affected modules and `test_comp_download.py` passed 93 checks in 21.21s. Seven installed SDK checks passed in 13.38s outside both checkouts without `PYTHONPATH`, using the existing noneditable installation and rebuilt local database. All 21 installed production modules match checkout bytes. The simulator retains the PR 9 revision and digest below. Independent Standards and Spec reviews reported no findings.
+
+The redundant final-victory xfail was removed. The actual native late-campaign error and rollback regression remains; complete 45-round acceptance still requires the upstream encoder fix. The full suite and model games were not rerun for this test-only change.
+
+Exact commands, source identities, logs and JUnit results: `/home/kyle/.local/share/tft-simulator-mcp/test-consolidation-20261019-lqw4y2/`.
+
 ## Skill-free setup and local reference on 2026-10-19
 
 Checked from base `ace84a75b8e962ffbc2db1efe274a449105f7aa9` with only skill and documentation changes. MCP initialization instructions and tool descriptions supply gameplay mechanics. Setup no longer installs or invokes a repository skill.
