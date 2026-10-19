@@ -1,5 +1,29 @@
 # Verification
 
+## PR 9 integration on 2026-10-19
+
+Tested MCP revision `1b9f753cf53312e12a4d1f7f0bece04a7a6d7f63`, main base `b72adbf3dc18f930630a564d6625d06778b30cab`, original PR head `0effceb0fddaff0fdebd42865930ed144f61d1ae`. Later documentation edits leave production and tests unchanged. The accepted contract is this PR's 20-tool lobby and 19-tool campaign, with native validation and observations.
+
+The simulator remains unchanged at `a197a2a5bfab26c2900ac77e7b48c349efc14016`, source SHA-256 `5d0b5b8f3bcf42818e51af5fb457aa27c7a35456351795abd1d9ef0bb2ef53f8`. A concrete MCP adapter uses its published single-player Gym interface, without requiring unpublished simulator methods.
+
+| Check | Result |
+| --- | --- |
+| Final checkout suite | 213 passed, 1 expected failure in 923.71s. The expected failure is the native late-campaign encoder limit. |
+| Fresh installed SDK acceptance | 13 passed in 343.38s. Includes all 20 lobby tools, three-process full-game replay, 19-tool campaign startup, native campaign loss, audit recovery and shutdown. |
+| External data rebuild | 748,928 boards; all seven tables and metadata match the committed database; 4,321 query comparisons passed; SQLite integrity `ok`. |
+| Installed identity | All 21 Python modules match tested source. Noneditable installation, Python 3.14.7, MCP 1.30.0. |
+| Independent reviews | Standards and Spec reported no remaining adapter findings. Final docs review corrected mode-specific registration descriptions. |
+
+Installed checks run outside both source checkouts with `PYTHONPATH` unset and `TFT_MCP_COMP_DB` pointing to a separate database. Checkout checks use `env -u APPIMAGE PYTHONHASHSEED=0 PYTHONPATH=src <venv>/bin/python -m pytest tests -q`. Installed checks select `test_acceptance.py`, `test_single_player.py` and the SDK test for native campaign loss with the absolute installed `TFT_MCP_TEST_COMMAND`.
+
+The native token encoder asserts `game_round < 40`, although its campaign has 45 controlled rounds. Late progression rolls back, and the final-win test reports this upstream failure as expected. Complete campaign acceptance remains blocked. Assertions stay enabled. Native Codex/Claude model games and playing strength were not checked for this revision. The fork author's Cursor canvas benchmark report was not rerun or rendered. There is no GitHub CI workflow, deployment or persistent host configuration change.
+
+The initial partial suite reported 97 passed and one obsolete description assertion before interruption in a raw protocol test. That test passed separately. Failed fixture and replay probes remain in the evidence logs; corrected rollback and delta tests passed. Active episode RNG remains part of the replay comparison.
+
+Evidence root: `/home/kyle/.local/share/tft-simulator-mcp/pr9-20261019-b5mihahz/`. It retains failed and final logs, archive, installed identity and data manifest. Tested archive SHA-256 is `1280f988d88847c0a0986d9dc6514fdb4183f0bdd194d4ffa6b3cb24dfc91c10`. Downloaded CSV SHA-256 is `df73994ce6172fd810846c92b66c099db488b5af12b27521a6e63fff18882f4e`; items SHA-256 is `f8c7c36a9d52caeab2ccd33fb6c0c224f246b35ff074bdce21d64d4661ac46f0`; database SHA-256 is `9939323da86b80fe775dbdcc9e5bc796d6ec7f3a9118c65a64ea564efb7ec50b`. Raw sources are separate downloads; the committed SQLite index supports runtime queries.
+
+## Earlier verification
+
 Checked on 2026-10-12. Tested MCP revision `3edc3ef69befe1c95b6782d3b2be88c7188f0150`, PR base `63c55f76e0a7649633ee208ba70650c495f36e24`. Subsequent verification-only edits leave production and tests unchanged.
 
 The simulator remains unchanged at `33c2c6eb873da1aaf319dc0c36bcbec1ad20c48d`. Installed source SHA-256 is `43db488008ac7503201978bef81230635d65a7d15c37b82b6cd368d2fa669dcb`.

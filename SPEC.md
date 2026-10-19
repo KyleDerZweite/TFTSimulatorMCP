@@ -62,3 +62,5 @@ The repository skill explains MCP mechanics only. The model chooses strategy. Se
 Verify checkout behavior through the official SDK and real simulator. Cover all tool families, strict inputs, privacy, the mask, rollback, graceful shutdown, terminal inspection and an exact full-game tape replayed across three processes. Extra/reordered reads and rejected actions must not change replay.
 
 Verify installed acceptance outside both checkouts without `PYTHONPATH`. A native GPT-6-Luna game establishes target usability, separately from scripted SDK acceptance or strategic strength. Record current source identity, passed/failed/unexecuted checks and host limits in [docs/verification.md](docs/verification.md). Claude acceptance is separate when authenticated access exists. No GitHub Actions, deployment or persistent host reconfiguration is part of this change.
+
+The pinned native token encoder rejects rounds 40 and later. Complete 45-round single-player campaign acceptance requires an upstream fix. Preserve assertions and roll back failed progression.

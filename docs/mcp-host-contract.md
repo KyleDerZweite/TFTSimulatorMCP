@@ -8,30 +8,30 @@ The server never calls a model API. The host does. The host launches this proces
 
 1. The host starts `tft-mcp` as a stdio process. `launcher.py` fixes `PYTHONHASHSEED` and `transport.serve` opens the SDK stdio streams.
 2. During startup the server starts one seeded game, then serves tools. There is no `open_binary` equivalent and no profile selector.
-3. The host sends MCP `tools/list`. `transport.py` binds `server.list_tools()` to `ToolCalls.list_tools`, which returns the `TOOLS` tuple from `tools.py`.
+3. The host sends MCP `tools/list`. `transport.py` binds `server.list_tools()` to `ToolCalls.list_tools`, which returns `TOOLS` in full mode or `SINGLE_PLAYER_TOOLS` in single-player mode from `tools.py`.
 4. Each entry is an MCP `Tool`: `name`, `description`, `inputSchema`, and `outputSchema`. The host turns those into the model's tool definitions.
 5. When the model calls a tool, the host sends MCP `tools/call` with that name and a JSON object. `ToolCalls.call_tool` validates the arguments, runs the matching `GameSession` method, checks the result against `outputSchema`, and returns it.
 6. The host places that result back on the next model request as a tool result.
 
-`Server("tft-mcp-server", instructions=SERVER_INSTRUCTIONS)` is the only server-level prompt. Those instructions travel with `initialize`. They tell the model that a game is already running, which tools to read first, and when the lobby is finished. They are not a substitute for the per-tool `description` fields.
+`instructions_for(session)` selects the server-level prompt for the mode and derives the single-player campaign summary from installed definitions. Those instructions travel with `initialize`. They tell the model that a game is already running, which tools to read first, and when the lobby is finished. They are not a substitute for the per-tool `description` fields.
 
 ## Where each piece lives
 
 | Host-facing job | This repository | REA equivalent |
 | --- | --- | --- |
 | Process entry and stdio | `launcher.py`, `transport.serve` | `src/main.ts` calling `serveStdio` |
-| Server name and instructions | `transport.SERVER_INSTRUCTIONS` | `createServer` instructions on `EvidenceMcpServer` |
-| Advertised tool list | `tools.TOOLS` | `OFFICIAL_TOOL_CONTRACTS` and the other contract lists |
+| Server name and instructions | `transport.instructions_for(session)` | `createServer` instructions on `EvidenceMcpServer` |
+| Advertised tool list | `tools.TOOLS`, `tools.SINGLE_PLAYER_TOOLS` | `OFFICIAL_TOOL_CONTRACTS` and the other contract lists |
 | Argument and result schemas | `tool_schemas.py`, attached in `tools.py` | Zod `inputSchema` / `outputSchema` on each `ToolContract` |
 | Call dispatch and validation | `tool_calls.ToolCalls` | `registerOfficialTools` handler, then `analysis.execute` |
 | Gameplay implementation | `session.py`, calling the simulator's controlled step | Provider bridge (Ghidra, Hopper, IDA, Kuna) |
 | Agent workflow notes | `.agents/skills/tft-mcp/SKILL.md` | `skills/reverse-engineer-anything/SKILL.md` |
 
-`tools.py` is the single advertisement. A tool the model can call is one `Tool(...)` in `TOOLS` with a description that says what the call returns, a strict input schema, and a strict output schema. `tool_calls.py` must handle that same name. A schema without a branch, or a branch without a schema, is an incomplete tool.
+`tools.py` is the single advertisement. A tool the model can call is one `Tool(...)` in the active mode's tuple with a description that says what the call returns, a strict input schema, and a strict output schema. `tool_calls.py` must handle that same name. A schema without a branch, or a branch without a schema, is an incomplete tool.
 
 Input objects reject unknown keys (`additionalProperties: false`). `transport.py` registers the call handler with `validate_input=False`, so this process owns validation in `validate_arguments` and returns `{code, message, details}` with MCP `isError`. That matches REA's choice to keep canonical parsers in the application and report structured failures itself. Do not let the SDK's default validator become a second, differently shaped error path.
 
-Successful actions and `get_decision` return the observation: `reward`, `start_turn`, `terminal`, `mask`, and `text`. `text` is the simulator `llm_observe` view. The first delivery is the full visible position, including opponent boards and traits. Later actions include `action succeeded` and only sections that changed. `end_turn` returns the next planning observation, including changed economy and any changed opponents. The host places that result on the next model request before another tool call. Reads return their own objects. Every success must already match the tool's `outputSchema` before the audit record is committed. Errors use MCP `isError` and `{code, message, details}` from `errors.py`. A masked action uses code `masked`, message `The action failed.`, and does not spend the action.
+Successful actions and `get_decision` return the observation: `reward`, `start_turn`, `terminal`, `mask`, and `text`. `text` comes from the native renderer through `llm_observe` or the concrete single-player view. The first delivery is the full visible position, including opponent boards and traits in full mode. Later actions include `action succeeded` and only sections that changed. `end_turn` returns the next planning observation, including changed economy and any changed opponents. The host places that result on the next model request before another tool call. Reads return their own objects. Every success must already match the tool's `outputSchema` before the audit record is committed. Errors use MCP `isError` and `{code, message, details}` from `errors.py`. A masked action uses code `masked`, message `The action failed.`, and does not spend the action.
 
 ## REA's registration path
 
@@ -148,7 +148,7 @@ Any client that can launch a local stdio MCP server can use the same command, ar
 
 ## Checklist for a new or changed tool
 
-1. Add one `Tool` to `TOOLS` with a description, a strict input schema, and a strict output schema.
+1. Add one `Tool` to the relevant mode tuples with a description, a strict input schema, and a strict output schema.
 2. Reject unknown keys and wrong types in `validate_arguments` before any game mutation.
 3. Add the concrete `GameSession` branch in `call_tool`. Keep the existing lock so calls stay serialized.
 4. Validate the success value against `outputSchema` inside the transaction, before audit commit.
