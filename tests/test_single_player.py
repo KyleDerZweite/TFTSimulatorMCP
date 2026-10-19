@@ -45,6 +45,8 @@ def test_single_player_session_has_one_seat_and_a_generated_fight(tmp_path):
     session = single_player_session(tmp_path)
     assert session.mode == "single_player"
     assert session.baselines == {}
+    # Native reset creates eight dormant seats; only player_0 is controlled.
+    assert len(session.game.native.player_manager.player_states) == 8
     assert [player["player_id"] for player in session.get_players()["players"]] == ["player_0"]
     decision = session.get_decision()
     assert decision["terminal"] is False
@@ -132,6 +134,7 @@ async def test_single_player_process_advertises_its_tools_and_campaign(tmp_path)
         hidden = [await sdk.call_tool(name, {}) for name in ("get_players", "get_board")]
         extra = await sdk.call_tool("get_last_fight", {"extra": 1})
     assert tools == {tool.name for tool in SINGLE_PLAYER_TOOLS}
+    assert len(tools) == 19
     assert decision["terminal"] is False and "opponents" not in decision["text"]
     assert not fight.isError and fight.structuredContent["kind"] == "none"
     for result in hidden:

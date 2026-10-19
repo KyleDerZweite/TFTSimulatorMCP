@@ -93,6 +93,8 @@ class GameSession:
                 raise SessionError('internal_error', 'Installed pool size is missing.', {'champion_id': champion_id}) from error
             visible = 0
             for player_id, player in self.game.player_manager.player_states.items():
+                if self.mode == "single_player" and player_id != "player_0":
+                    continue
                 if player is None:
                     continue
                 for column in player.board:
@@ -301,12 +303,13 @@ class GameSession:
 
     def get_game_status(self):
         with SIMULATOR_LOCK:
+            capacity = self.game.max_actions_per_round if self.game and self.mode == "single_player" else 15
             return {
                 "state": self.state,
                 "game_id": self.game_id,
                 "controlled_player_id": "player_0" if self.game else None,
                 "round": self.game.game_round.current_round if self.game else None,
-                "planning_budget": ({"capacity": 15, "remaining": max(0, 15 - self.game.actions_taken["player_0"])}
+                "planning_budget": ({"capacity": capacity, "remaining": max(0, capacity - self.game.actions_taken["player_0"])}
                                     if self.state == "running" else None),
                 "outcome": deepcopy(self.outcome),
             }
@@ -352,7 +355,8 @@ class GameSession:
                 status = "alive"
                 if placement == 1:
                     status = "winner"
-                elif placement is not None or player is None:
+                elif (placement is not None or player is None
+                      or self.mode == "single_player" and self.game.episode_outcome == "lost"):
                     status = "eliminated"
                 players.append({"player_id": player_id, "controlled": player_id == "player_0",
                                 "status": status,
@@ -368,15 +372,7 @@ class GameSession:
             fight = self.game.last_fight
             if fight is None:
                 return {"game_id": self.game_id, "round": None, "kind": "none", "won": None, "enemy": None}
-            enemy = fight["enemy"]
-            record = None
-            if enemy is not None:
-                board = [[freeze_unit(unit) for unit in column] for column in enemy.board]
-                record = {"level": enemy.level, "board": board_slots({"board": board}, occupied_only=True),
-                          "traits": trait_records({"composition": dict(enemy.team_composition),
-                                                   "tiers": dict(enemy.team_tiers)}, active_only=True)}
-            return {"game_id": self.game_id, "round": fight["round"], "kind": fight["kind"],
-                    "won": fight["won"], "enemy": record}
+            return {"game_id": self.game_id, **deepcopy(fight)}
 
     def campaign_schedule(self):
         with SIMULATOR_LOCK:
@@ -498,10 +494,8 @@ class GameSession:
                                  {key: 0 for key in champion.test_multiple}, ListProxy("log"))
             with self.simulator_scope(native_dir=candidate_dir):
                 if mode == "single_player":
-                    from Simulator.simulators.tft_single_player_simulator import TFT_Single_Player_Simulator
-                    candidate = TFT_Single_Player_Simulator(
-                        TFTConfig(num_players=1, max_actions_per_round=15))
-                    candidate.reset(seed=seed)
+                    from tft_mcp.single_player import SinglePlayer
+                    candidate = SinglePlayer(seed)
                     baselines = {}
                 else:
                     candidate = TFT_Simulator(TFTConfig())
@@ -589,6 +583,8 @@ class GameSession:
             raise SessionError("no_game", "Start a game first.")
         if self.state == "terminal":
             raise SessionError("game_terminal", "The completed game accepts no more actions.")
+        if self.mode == "single_player":
+            return
         if (self.game.agent_selection != "player_0" or self.game.truncations.get("player_0")
                 or self.game.terminations.get("player_0", True)):
             raise SessionError("internal_error", "No controlled decision is available.")
@@ -597,7 +593,11 @@ class GameSession:
         return {"action_type": int(action[0]), "x1": int(action[1]), "x2": int(action[2])}
 
     def _public_observation(self, step_result=None):
-        observed = self.game.llm_observe("player_0")
+        if self.mode == "single_player":
+            with self.simulator_scope():
+                observed = self.game.observe()
+        else:
+            observed = self.game.llm_observe("player_0")
         terminal = bool(observed["terminal"] or self.state == "terminal")
         if step_result is not None:
             self.last_reward = step_result["rewards"]["player_0"]
@@ -639,11 +639,9 @@ class GameSession:
         player = self.game.player_manager.player_states.get("player_0")
         if player is not None and self.terminal_snapshot is None:
             self.public_final["player_0"] = {"health": player.health, "level": player.level}
-            self.terminal_snapshot = freeze_player(player, self.game.game_round.current_round)
+            self.terminal_snapshot = freeze_player(player, self.game.last_fight["round"])
         if episode == "won":
             self.placements["player_0"] = 1
-        elif "player_0" not in self.placements:
-            self.game.player_manager.player_states["player_0"] = None
 
     def _finish_lobby(self, result):
         if not result["terminal"] or self.state == "terminal":
@@ -696,20 +694,33 @@ class GameSession:
 
     def _controlled(self, action, kind):
         self.require_decision()
+        if self.mode == "single_player":
+            with self.simulator_scope():
+                result = self.game.step(action)
+            self._require_accepted(result)
+            return self._apply_result([], result, kind)
         retained = self._living_players()
         alive = self.game.num_alive
         with self.simulator_scope():
             result = self.game.step_controlled([action], ("player_0",))
+        self._require_accepted(result)
+        return self._apply_result(retained, result, kind, alive)
+
+    def _require_accepted(self, result):
         if not result["accepted"]:
             raise SessionError("masked", "The action failed.", {
                 "action": self._mask_command(result["action"]),
                 "mask": [self._mask_command(command) for command in result["mask"]],
             })
-        return self._apply_result(retained, result, kind, alive)
 
     @transactional
     def end_turn(self):
         self.require_decision()
+        if self.mode == "single_player":
+            with self.simulator_scope():
+                result = self.game.finish_round()
+            self._require_accepted(result)
+            return self._apply_result([], result, "end_turn")
         result = None
         trace = []
         reward = 0.0

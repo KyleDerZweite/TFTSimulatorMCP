@@ -49,7 +49,8 @@ SINGLE_PLAYER_INSTRUCTIONS = (
     "text is the simulator llm observation. The first read lists the visible position. "
     "Call one action tool, then wait for its observation before any other tool call. "
     "text then starts with action succeeded and includes only sections that changed. "
-    "A new planning phase also includes changed economy. reward 1 after end_turn means the fight was won. "
+    "A new planning phase also includes changed economy. reward is the change in native cumulative reward: "
+    "1 means a fight was won, -1 means a fight was lost, and 0 means no fight ran. "
     "get_last_fight shows the enemy board, traits and result of the fight that just ran. "
     "A masked action failed and changed nothing. Planning ends at end_turn or the simulator's 15-action limit. "
     "Finish when terminal is true. "
@@ -105,7 +106,10 @@ def campaign_text(schedule):
             items.append(f"{count} from round {entry['round']}")
             most = count
     if items:
-        parts.append(f"Completed items per enemy unit reach {'; '.join(items)}.")
+        parts.append(f"Base completed items per enemy unit reach {'; '.join(items)}.")
+    varies = _first_round(combats, lambda e: e["items_vary"])
+    if varies is not None:
+        parts.append(f"From round {varies} each enemy's item count varies by up to 1 from the base, clipped to 0 through 3.")
     return " ".join(parts)
 
 
