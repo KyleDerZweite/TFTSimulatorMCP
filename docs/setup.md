@@ -14,6 +14,7 @@ tar -xf "$TFT_INSTALL/source.tar" -C "$TFT_INSTALL/source"
 env -u APPIMAGE python3 -m venv "$TFT_INSTALL/venv"
 env -u APPIMAGE "$TFT_INSTALL/venv/bin/python" -m pip install "$TFT_INSTALL/source[dev]"
 cp -R "$TFT_INSTALL/source/.agents" "$TFT_INSTALL/host/.agents"
+cp "$TFT_INSTALL/source/data/set4/player-results/comps.sqlite" "$TFT_INSTALL/comps.sqlite"
 git -C "$TFT_INSTALL/host" init -q
 sha256sum "$TFT_INSTALL/source.tar"
 ```
@@ -26,6 +27,7 @@ Inspect `codex mcp get tft --json` before registration. Reuse a correct entry. U
 codex mcp add tft --env TFT_MCP_SEED=0 \
   --env "TFT_MCP_AUDIT_PATH=$TFT_INSTALL/logs/audit.jsonl" \
   --env "TFT_MCP_NATIVE_LOG_DIR=$TFT_INSTALL/logs/native" \
+  --env "TFT_MCP_COMP_DB=$TFT_INSTALL/comps.sqlite" \
   -- /usr/bin/env -u APPIMAGE -u PYTHONPATH "$TFT_INSTALL/venv/bin/tft-mcp"
 cd "$TFT_INSTALL/host"
 codex --model gpt-6-luna
@@ -35,20 +37,19 @@ Ask the fresh session to use `$tft-mcp` to play a game. An actual `get_decision`
 
 `TFT_MCP_SEED` is required, with decimal digits in `0..2147483647`. `TFT_MCP_MODE` chooses the game: `full` (the default) or `single_player`. The server starts that game when connected. Restart the server for another game or the other mode.
 
-From these checkouts, before that mode is in an installed launcher:
+For single-player, add `TFT_MCP_MODE=single_player` to the host's server environment. Both modes use the same installed launcher. Keep the absolute `TFT_MCP_COMP_DB` path for the separate database.
+
+The committed database supports runtime queries. To download the raw sources separately and rebuild it with the installed commands:
 
 ```sh
-mkdir -p "$HOME/.local/share/tft-simulator-mcp/single-player/logs/native"
-TFT_MCP_SEED=0 TFT_MCP_MODE=single_player \
-TFT_MCP_AUDIT_PATH="$HOME/.local/share/tft-simulator-mcp/single-player/logs/audit.jsonl" \
-TFT_MCP_NATIVE_LOG_DIR="$HOME/.local/share/tft-simulator-mcp/single-player/logs/native" \
-TFT_MCP_STREAM_LOG="$HOME/.local/share/tft-simulator-mcp/single-player/logs/model-stream.txt" \
-TFT_MCP_COMP_DB="$PWD/data/set4/player-results/comps.sqlite" \
-PYTHONPATH="$PWD/src" \
-/home/silver/R/T/.venv/bin/python -m tft_mcp
+"$TFT_INSTALL/venv/bin/python" -m tft_mcp.comp_download \
+  --csv "$TFT_INSTALL/data/games.csv" --items "$TFT_INSTALL/data/items.json"
+"$TFT_INSTALL/venv/bin/python" -m tft_mcp.comp_index \
+  --csv "$TFT_INSTALL/data/games.csv" --items "$TFT_INSTALL/data/items.json" \
+  --database "$TFT_INSTALL/comps.sqlite"
 ```
 
-Run that from this repository. It is a stdio server: a host launches it, and the process waits for MCP on standard input. Audit logging is required; native logs default beside the audit file. The model stream transcript defaults to `model-stream.txt` in that same directory. Set `TFT_MCP_STREAM_LOG` to another file, or to `off`, to move or skip it. Keep host and SDK test logs separate. Graceful shutdown records a close; forced host termination can skip that callback. The stream file stays on disk either way.
+The downloader verifies pinned SHA-256 hashes. Keep raw data, database and logs outside the installation's source archive. Audit logging is required; native logs default beside the audit file. The optional transcript defaults to `model-stream.txt` beside the audit. Set `TFT_MCP_STREAM_LOG` to another path or `off`. Transcript failures leave gameplay usable. Graceful shutdown records a close; forced termination can skip that callback.
 
 For Claude, register the same absolute launcher using `claude mcp add --scope local --transport stdio tft`, the same seed/log fields and its stable project directory. Preserve an existing registration directory and permissions. Authenticated Claude gameplay remains unverified.
 
@@ -56,6 +57,6 @@ For a known trusted local installation, Codex's existing `mcp_servers.tft.defaul
 
 If startup fails, check the seed, writable log paths and interpreter. The `/usr/bin/env -u APPIMAGE` wrapper avoids interpreter interference on AppImage hosts. The launcher sets `PYTHONHASHSEED=0`.
 
-Each game keeps its simulator log at `<TFT_MCP_NATIVE_LOG_DIR>/<game_id>/log.txt`. Earlier versions copied that directory on every action, leaving many `<game_id>-<hex>` directories. Stop the server, then merge them with `"$TFT_INSTALL/venv/bin/python" -m tft_mcp.native_logs "$TFT_INSTALL/logs/native"`. It keeps the copy the audit last recorded and removes the rest. `--dry-run` prints the plan. Games without a `game_closed` audit record are skipped unless `--include-open` is given. Older audit `native_log_dir` paths then point at removed copies; the game ID still names the merged directory.
+Each game keeps its simulator log at `<TFT_MCP_NATIVE_LOG_DIR>/<game_id>/log.txt`. Earlier versions copied that directory on every action, leaving many `<game_id>-<hex>` directories. Stop the server, then merge them with `"$TFT_INSTALL/venv/bin/python" -m tft_mcp.native_logs "$TFT_INSTALL/logs/native"`. It keeps the copy the audit last recorded and removes only copies whose files are proven redundant. Divergent or unique data is preserved and reported instead. `--dry-run` prints the plan. Games without a `game_closed` audit record are skipped unless `--include-open` is given. Older audit `native_log_dir` paths then point at removed copies; the game ID still names the merged directory.
 
 Remove only the named entry with `codex mcp remove tft`. Retain logs separately. For developer and installed checks, see [tool-reference.md](tool-reference.md#developer-checks) and [verification.md](verification.md).
