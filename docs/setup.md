@@ -20,19 +20,30 @@ sha256sum "$TFT_INSTALL/source.tar"
 
 The archive includes committed source only. Save the selected MCP revision, archive checksum and installed simulator identity separately.
 
-Inspect `codex mcp get tft --json` before registration. Reuse a correct entry. Update only the named server's launcher, arguments and TFT environment fields; preserve credentials, global policies and existing per-tool restrictions. These commands add an absent entry:
+Keep TFT in its dedicated game host. Connecting the MCP starts a game, so ordinary development chats should not load it. Use per-run overrides or the host's `.codex/config.toml`; `codex mcp add` writes a user-level registration and is unsuitable for this scope.
+
+From the host directory, inspect `codex mcp get tft --json` before registration. Reuse a correct entry. Update only the named server's launcher, arguments and TFT environment fields; preserve credentials, unrelated tables and existing per-tool restrictions. For the newly created host above, this writes an absent config. Merge into an existing file instead of replacing it:
 
 ```sh
-codex mcp add tft --env TFT_MCP_SEED=0 \
-  --env "TFT_MCP_AUDIT_PATH=$TFT_INSTALL/logs/audit.jsonl" \
-  --env "TFT_MCP_NATIVE_LOG_DIR=$TFT_INSTALL/logs/native" \
-  --env "TFT_MCP_COMP_DB=$TFT_INSTALL/comps.sqlite" \
-  -- /usr/bin/env -u APPIMAGE -u PYTHONPATH "$TFT_INSTALL/venv/bin/tft-mcp"
+mkdir -p "$TFT_INSTALL/host/.codex"
+cat > "$TFT_INSTALL/host/.codex/config.toml" <<EOF
+[mcp_servers.tft]
+command = "/usr/bin/env"
+args = ["-u", "APPIMAGE", "-u", "PYTHONPATH", "$TFT_INSTALL/venv/bin/tft-mcp"]
+
+[mcp_servers.tft.env]
+TFT_MCP_SEED = "0"
+TFT_MCP_AUDIT_PATH = "$TFT_INSTALL/logs/audit.jsonl"
+TFT_MCP_NATIVE_LOG_DIR = "$TFT_INSTALL/logs/native"
+TFT_MCP_COMP_DB = "$TFT_INSTALL/comps.sqlite"
+EOF
 cd "$TFT_INSTALL/host"
-codex --model gpt-6-luna
+codex mcp list --json
 ```
 
-Ask the fresh session to play a game with the TFT tools. The host receives mechanics through MCP initialization instructions and tool descriptions. An actual `get_decision` call proves tool execution. Registration alone does not.
+Codex loads project config only for a trusted workspace. Review the intended host's trust when first opening it. Run MCP inspection from the actual directory; Codex 0.163.0's MCP subcommands do not use `-C` for that lookup. Repeat `codex mcp list --json` in an unrelated project and confirm TFT is absent there. Remove a superseded global TFT registration only after backing it up and preserving any still-needed hosts. Existing sessions can retain their old tools and processes until reconnected.
+
+For an authorized game, run `codex --model gpt-6-luna` from that host and ask the fresh session to play with the TFT tools. The host receives mechanics through MCP initialization instructions and tool descriptions. An actual `get_decision` call proves tool execution. Registration alone does not.
 
 `TFT_MCP_SEED` is required, with decimal digits in `0..2147483647`. `TFT_MCP_MODE` chooses the game: `full` (the default) or `single_player`. The server starts that game when connected. Restart the server for another game or the other mode.
 
@@ -60,4 +71,4 @@ If startup fails, check the seed, writable log paths and interpreter. The `/usr/
 
 Each game keeps its simulator log at `<TFT_MCP_NATIVE_LOG_DIR>/<game_id>/log.txt`. Earlier versions copied that directory on every action, leaving many `<game_id>-<hex>` directories. Stop the server, then merge them with `"$TFT_INSTALL/venv/bin/python" -m tft_mcp.native_logs "$TFT_INSTALL/logs/native"`. It keeps the copy the audit last recorded and removes only copies whose files are proven redundant. Divergent or unique data is preserved and reported instead. `--dry-run` prints the plan. Games without a `game_closed` audit record are skipped unless `--include-open` is given. Older audit `native_log_dir` paths then point at removed copies; the game ID still names the merged directory.
 
-Remove only the named entry with `codex mcp remove tft`. Retain logs separately. For developer and installed checks, see [tool-reference.md](tool-reference.md#developer-checks) and [verification.md](verification.md).
+To retire this host, remove its local `[mcp_servers.tft]` table and subtables, or its per-run overrides. Retain logs separately. For developer and installed checks, see [tool-reference.md](tool-reference.md#developer-checks) and [verification.md](verification.md).

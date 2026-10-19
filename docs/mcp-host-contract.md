@@ -113,7 +113,7 @@ Registration alone does not prove the tools work. A fresh agent session must act
 
 ### Cursor
 
-Project config is `.cursor/mcp.json`. User config is `~/.cursor/mcp.json`. Put this server in the project file when the checkout should carry it, and in the user file when every workspace should see it. Preserve every other server entry.
+Register TFT in the dedicated game host's `.cursor/mcp.json`. Connecting starts a game, so ordinary development workspaces should not load it. Preserve every other server entry.
 
 ```json
 {
@@ -140,7 +140,7 @@ Reload MCP after editing the file. The tool list Cursor shows must be the 20 nam
 
 ### Codex and Claude Code
 
-Codex uses `codex mcp add tft` with the same environment and absolute launcher. Claude Code uses `claude mcp add --scope local --transport stdio tft` with the same fields. Details and the install layout are in [setup.md](setup.md). Update only the named `tft` entry. Leave credentials, unrelated servers, and existing per-tool approval policy alone.
+Codex uses the dedicated host's `.codex/config.toml` or per-run overrides with the same environment and absolute launcher. Claude Code uses `claude mcp add --scope local --transport stdio tft` from its dedicated host with the same fields. Details and the install layout are in [setup.md](setup.md). Update only the named `tft` entry. Leave credentials, unrelated servers, and existing per-tool approval policy alone. Connecting starts a game, so a user-wide registration is inappropriate.
 
 ### Any other MCP host
 
