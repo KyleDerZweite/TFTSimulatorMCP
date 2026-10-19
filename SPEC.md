@@ -57,7 +57,7 @@ Gold, bench space, merges, item combinations and movement limits come from the s
 
 ## Usage and verification
 
-The repository skill explains MCP mechanics only. The model chooses strategy. Setup uses a fresh noneditable installation and absolute launcher. Preserve operator credentials, unrelated configuration, existing per-tool policy and retained logs. Update only the explicitly authorized named `tft` entry. The server adds no approval layer.
+MCP initialization instructions and tool descriptions explain the mechanics. The model chooses strategy. Setup uses a fresh noneditable installation and absolute launcher. Preserve operator credentials, unrelated configuration, existing per-tool policy and retained logs. Update only the explicitly authorized named `tft` entry. The server adds no approval layer.
 
 Verify checkout behavior through the official SDK and real simulator. Cover all tool families, strict inputs, privacy, the mask, rollback, graceful shutdown, terminal inspection and an exact full-game tape replayed across three processes. Extra/reordered reads and rejected actions must not change replay.
 

@@ -35,13 +35,16 @@ The command keeps only those two files and checks each against its pinned SHA-25
 
 ## Comp index
 
-`player-results/comps.sqlite` is the aggregate behind `search_comps_by_champions`, `search_comps_by_trait`, and `search_champion_items`. A comp is one exact set of champion names. Its win rate is the share of those final boards with placement 1 through 4. Trait level is the unit count stored in `traits`. An item build is the exact multiset of item ids on one champion. Champion lists below 100 boards are omitted, a trait level is omitted unless that count was recorded on at least 100 boards of that list, and an item build is omitted unless that champion carried it on at least 100 boards. Rebuild it from the pinned CSV:
+`player-results/comps.sqlite` is the aggregate behind `search_comps_by_champions`, `search_comps_by_trait`, and `search_champion_items`. A comp is one exact set of champion names. Its win rate is the share of those final boards with placement 1 through 4. Trait level is the unit count stored in `traits`. An item build is the exact multiset of item ids on one champion. Champion lists below 100 boards are omitted, a trait level is omitted unless that count was recorded on at least 100 boards of that list, and an item build is omitted unless that champion carried it on at least 100 boards. Build a local reference from the downloaded CSV and items:
 
 ```sh
-env PYTHONPATH=src python -m tft_mcp.comp_index
+env PYTHONHASHSEED=0 PYTHONPATH=src python -m tft_mcp.comp_index \
+  --database data/set4/player-results/comps.local.sqlite
 ```
 
-The builder checks the CSV SHA-256 above, 748,928 rows, and 93,616 boards at each placement, then keeps the 682 champion lists, 5,994 trait levels, and 4,352 item builds with at least 100 boards. The built file is 675,840 bytes, SHA-256 `9939323da86b80fe775dbdcc9e5bc796d6ec7f3a9118c65a64ea564efb7ec50b`.
+The builder checks the CSV SHA-256 above, 748,928 rows, and 93,616 boards at each placement, then keeps the 682 champion lists, 5,994 trait levels, and 4,352 item builds with at least 100 boards. The committed reference is 675,840 bytes, SHA-256 `9939323da86b80fe775dbdcc9e5bc796d6ec7f3a9118c65a64ea564efb7ec50b`. Compare table contents when checking a rebuild; SQLite files can differ in physical row order.
+
+The local file is ignored by Git. Set `TFT_MCP_COMP_DB` to its absolute path when starting the server to query it. The default still reads the committed reference.
 
 ## Riot Fates archive
 
