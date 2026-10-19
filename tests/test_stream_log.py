@@ -1,3 +1,5 @@
+import builtins
+import importlib.util
 import json
 from types import SimpleNamespace
 
@@ -5,6 +7,7 @@ import pytest
 
 from support import client
 from tft_mcp.stream_log import StreamLog
+import tft_mcp.stream_log as stream_log
 
 
 def _tool(name="get_decision"):
@@ -96,3 +99,120 @@ async def test_stream_log_off_leaves_the_audit_as_the_only_transcript(tmp_path):
         assert not (await sdk.call_tool("get_decision", {})).isError
     assert not (tmp_path / "model-stream.txt").exists()
     assert (tmp_path / "audit.jsonl").exists()
+
+
+@pytest.mark.parametrize('collision', ['audit', 'default-audit-name', 'audit-symlink', 'audit-hardlink',
+                                     'native', 'native-root', 'native-symlink', 'native-hardlink',
+                                     'native-symlink-escape', 'default-native-root'])
+def test_stream_log_rejects_protected_destinations_before_writing(tmp_path, capsys, collision):
+    audit = tmp_path / ('model-stream.txt' if collision == 'default-audit-name' else 'audit.jsonl')
+    audit.write_bytes(b'{"retained": true}\n')
+    native = tmp_path / 'native'
+    native.mkdir()
+    native_log = native / 'game' / 'log.txt'
+    native_log.parent.mkdir()
+    native_log.write_bytes(b'native evidence\x00')
+    path = tmp_path / 'stream.txt'
+    environment = {'TFT_MCP_AUDIT_PATH': str(audit)}
+    if collision == 'audit':
+        path = audit
+    elif collision == 'default-audit-name':
+        path = ''
+    elif collision == 'audit-symlink':
+        path.symlink_to(audit)
+    elif collision == 'audit-hardlink':
+        path.hardlink_to(audit)
+    elif collision == 'native':
+        path = native / 'future-game' / 'transcript.txt'
+    elif collision == 'native-root':
+        path = native
+    elif collision == 'native-symlink':
+        path.symlink_to(native_log)
+    elif collision == 'native-hardlink':
+        path.hardlink_to(native_log)
+    elif collision == 'native-symlink-escape':
+        external = tmp_path / 'outside-native.txt'
+        external.write_bytes(b'escaped native evidence')
+        path = native / 'escaped.txt'
+        path.symlink_to(external)
+    elif collision == 'default-native-root':
+        environment['TFT_MCP_NATIVE_LOG_DIR'] = str(tmp_path)
+        path = ''
+    environment['TFT_MCP_STREAM_LOG'] = str(path)
+    log = StreamLog.from_environment(environment)
+    log.open_session(0, 'server')
+    log.record_call('get_decision', {})
+    assert log.path is None
+    assert audit.read_bytes() == b'{"retained": true}\n'
+    assert native_log.read_bytes() == b'native evidence\x00'
+    assert not (native / 'future-game').exists()
+    if collision == 'native-symlink-escape':
+        assert external.read_bytes() == b'escaped native evidence'
+    assert capsys.readouterr().err.count('unavailable') == 1
+
+
+def test_stream_log_rechecks_aliases_created_after_configuration(tmp_path):
+    audit = tmp_path / 'audit.jsonl'
+    audit.write_bytes(b'audit evidence')
+    path = tmp_path / 'stream.txt'
+    log = StreamLog.from_environment({'TFT_MCP_AUDIT_PATH': str(audit), 'TFT_MCP_STREAM_LOG': str(path)})
+    path.symlink_to(audit)
+    log.open_session(0, 'server')
+    assert log.path is None
+    assert audit.read_bytes() == b'audit evidence'
+
+
+def test_unresolvable_stream_destination_disables_only_the_transcript(tmp_path, capsys):
+    path = tmp_path / 'stream.txt'
+    path.symlink_to(path)
+    log = StreamLog.from_environment({'TFT_MCP_STREAM_LOG': str(path)})
+    log.open_session(0, 'server')
+    assert log.path is None
+    assert path.is_symlink()
+    assert 'unavailable' in capsys.readouterr().err
+
+
+def test_stream_log_imports_and_disables_without_fcntl(tmp_path, monkeypatch, capsys):
+    real_import = builtins.__import__
+
+    def without_fcntl(name, *args, **kwargs):
+        if name == 'fcntl':
+            raise ImportError('not supported on this platform')
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, '__import__', without_fcntl)
+    spec = importlib.util.spec_from_file_location('stream_log_without_fcntl', stream_log.__file__)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    log = module.StreamLog(tmp_path / 'new-directory' / 'stream.txt')
+    log.open_session(0, 'server')
+    log.record_call('get_decision', {})
+    assert log.path is None
+    assert list(tmp_path.iterdir()) == []
+    assert 'file locking is unavailable' in capsys.readouterr().err
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize('collision', ['audit', 'default-audit-name', 'native', 'native-symlink'])
+async def test_colliding_transcript_leaves_gameplay_and_retained_logs_usable(tmp_path, collision):
+    audit = tmp_path / ('model-stream.txt' if collision == 'default-audit-name' else 'audit.jsonl')
+    retained_audit = b'{"retained": true}\n'
+    audit.write_bytes(retained_audit)
+    native_log = tmp_path / 'native' / 'retained' / 'log.txt'
+    native_log.parent.mkdir(parents=True)
+    native_log.write_bytes(b'retained native evidence\x00')
+    path = audit
+    if collision == 'default-audit-name':
+        path = ''
+    elif collision == 'native':
+        path = native_log
+    elif collision == 'native-symlink':
+        path = tmp_path / 'native-alias.txt'
+        path.symlink_to(native_log)
+    async with client(tmp_path, TFT_MCP_STREAM_LOG=str(path), TFT_MCP_AUDIT_PATH=str(audit)) as sdk:
+        assert not (await sdk.call_tool('get_decision', {})).isError
+        assert not (await sdk.call_tool('end_turn', {})).isError
+    assert audit.read_bytes().startswith(retained_audit)
+    records = [json.loads(line) for line in audit.read_text().splitlines()]
+    assert any(row.get('event') == 'tool_result' and row['tool'] == 'end_turn' for row in records)
+    assert native_log.read_bytes() == b'retained native evidence\x00'
