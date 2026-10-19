@@ -60,7 +60,8 @@ def legacy_layout(root, game_id, copies, recorded, closed=True):
                {'event': 'progression', 'game_id': game_id, 'native_log_dir': str(native / names[recorded])}]
     if closed:
         records.append({'event': 'game_closed', 'game_id': game_id, 'native_log_dir': str(native / names[recorded])})
-    (root / 'audit.jsonl').write_text(''.join(json.dumps(record) + '\n' for record in records))
+    with (root / 'audit.jsonl').open('a') as audit:
+        audit.writelines(json.dumps(record) + '\n' for record in records)
     return native, names
 
 
@@ -69,15 +70,20 @@ def test_cleanup_keeps_the_last_recorded_copy(tmp_path, capsys):
     native, names = legacy_layout(tmp_path, game_id, copies=3, recorded=2)
     # A later failed action left only bytes already in the accepted copy.
     (native / names[3] / 'log.txt').write_text('round 0\n')
-    accepted = (native / names[2] / 'log.txt').read_bytes()
+    for name in names:
+        (native / name / 'nested').mkdir()
+        (native / name / 'nested' / 'metadata.bin').write_bytes(b'\x00\xffsame')
+    (native / names[2] / 'accepted-only.txt').write_text('preserved')
+    accepted = snapshot(native / names[2])
     other = native / ('b' * 32)
     other.mkdir()
     (native / 'unrelated').mkdir()
+    before = snapshot(tmp_path)
     assert main([str(native), '--dry-run']) == 0
-    assert len(list(native.iterdir())) == 6
+    assert snapshot(tmp_path) == before
     assert main([str(native)]) == 0
     assert sorted(path.name for path in native.iterdir()) == sorted([game_id, 'b' * 32, 'unrelated'])
-    assert (native / game_id / 'log.txt').read_bytes() == accepted
+    assert snapshot(native / game_id) == accepted
     assert f'merged {game_id}' in capsys.readouterr().out
 
 
@@ -108,41 +114,26 @@ def snapshot(root):
             for path in root.rglob('*')}
 
 
-def test_cleanup_preserves_matching_and_kept_only_extra_files(tmp_path):
-    game_id = 'e' * 32
-    native, names = legacy_layout(tmp_path, game_id, copies=2, recorded=2)
-    for name in names:
-        (native / name / 'nested').mkdir()
-        (native / name / 'nested' / 'metadata.bin').write_bytes(b'\x00\xffsame')
-    (native / names[2] / 'accepted-only.txt').write_text('preserved')
-    expected = snapshot(native / names[2])
-    assert main([str(native)]) == 0
-    assert snapshot(native / game_id) == expected
-
-
-@pytest.mark.parametrize('divergent', [False, True])
-def test_cleanup_compares_binary_log_prefixes_across_chunks(tmp_path, divergent):
+def test_cleanup_compares_binary_log_prefixes_across_chunks(tmp_path):
     game_id = 'e' * 32
     native, names = legacy_layout(tmp_path, game_id, copies=1, recorded=1)
     prefix = b'\x00\xff' * 40000
     accepted = prefix + b'accepted tail'
     (native / names[1] / 'log.txt').write_bytes(accepted)
-    (native / game_id / 'log.txt').write_bytes(prefix[:-1] + b'X' if divergent else prefix)
-    before = snapshot(tmp_path)
-    assert main([str(native)]) == (1 if divergent else 0)
-    if divergent:
-        assert snapshot(tmp_path) == before
-    else:
-        assert [path.name for path in native.iterdir()] == [game_id]
-        assert (native / game_id / 'log.txt').read_bytes() == accepted
+    (native / game_id / 'log.txt').write_bytes(prefix)
+    assert main([str(native)]) == 0
+    assert [path.name for path in native.iterdir()] == [game_id]
+    assert (native / game_id / 'log.txt').read_bytes() == accepted
 
 
-@pytest.mark.parametrize('damage', ['divergent-log', 'longer-log', 'unique-file', 'different-file',
+@pytest.mark.parametrize('damage', ['divergent-log', 'divergent-chunk', 'longer-log', 'unique-file', 'different-file',
                                   'missing-kept-log', 'log-symlink', 'nested-symlink',
                                   'kept-log-symlink', 'copy-symlink', 'target-symlink',
                                   'broken-target', 'target-file'])
 @pytest.mark.parametrize('dry_run', [False, True])
 def test_cleanup_refuses_unsafe_copies_without_partial_deletion(tmp_path, capsys, damage, dry_run):
+    # The valid earlier game must survive preflight failure in the later game.
+    legacy_layout(tmp_path, 'a' * 32, copies=1, recorded=1)
     game_id = 'f' * 32
     native, names = legacy_layout(tmp_path, game_id, copies=3, recorded=3)
     source, keep, target = native / names[2], native / names[3], native / game_id
@@ -151,6 +142,12 @@ def test_cleanup_refuses_unsafe_copies_without_partial_deletion(tmp_path, capsys
     (external / 'log.txt').write_bytes(b'external evidence\x00')
     if damage == 'divergent-log':
         (source / 'log.txt').write_text('different history\n')
+    elif damage == 'divergent-chunk':
+        prefix = b'\x00\xff' * 40000
+        for name in names:
+            (native / name / 'log.txt').write_bytes(prefix)
+        (keep / 'log.txt').write_bytes(prefix + b'accepted tail')
+        (source / 'log.txt').write_bytes(prefix[:-1] + b'X')
     elif damage == 'longer-log':
         (source / 'log.txt').write_bytes((keep / 'log.txt').read_bytes() + b'unaccepted\n')
     elif damage == 'unique-file':
@@ -184,15 +181,6 @@ def test_cleanup_refuses_unsafe_copies_without_partial_deletion(tmp_path, capsys
     assert main([str(native), *(['--dry-run'] if dry_run else [])]) == 1
     assert snapshot(tmp_path) == before
     assert 'refused native log cleanup' in capsys.readouterr().err
-
-
-def test_cleanup_preflights_all_games_before_deleting_any_copies(tmp_path):
-    native, _ = legacy_layout(tmp_path, 'a' * 32, copies=1, recorded=1)
-    _, names = legacy_layout(tmp_path, 'b' * 32, copies=2, recorded=2)
-    (native / names[1] / 'unique.txt').write_text('retain this')
-    before = snapshot(tmp_path)
-    assert main([str(native), '--include-open']) == 1
-    assert snapshot(tmp_path) == before
 
 
 def test_direct_consolidation_refuses_unlisted_canonical_target(tmp_path):
