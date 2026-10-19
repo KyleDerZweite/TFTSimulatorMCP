@@ -1,5 +1,7 @@
 """Shared strict MCP record schemas, independent of runtime and simulator state."""
 
+from tft_mcp.comp_index import MAX_CHAMPIONS, MAX_LEVEL, MAX_LIMIT
+
 OUTCOME_SCHEMA = {
     "type": ["object", "null"],
     "properties": {
@@ -20,8 +22,8 @@ STATUS_SCHEMA = {
         "round": {"type": ["integer", "null"]},
         "planning_budget": {
             "type": ["object", "null"],
-            "properties": {"capacity": {"type": "integer", "const": 14},
-                           "remaining": {"type": "integer", "minimum": 0, "maximum": 14}},
+            "properties": {"capacity": {"type": "integer", "const": 15},
+                           "remaining": {"type": "integer", "minimum": 0, "maximum": 15}},
             "required": ["capacity", "remaining"], "additionalProperties": False,
         },
         "outcome": OUTCOME_SCHEMA,
@@ -119,6 +121,13 @@ UNIT_SCHEMA = {
 PLAYER_INPUT = {"type": "object", "properties": {"player_id": {"type": "string"}}, "additionalProperties": False}
 
 
+POOL_PROPERTIES = {
+    "game_id": {"type": "string"}, "round": {"type": "integer"}, "champion_id": {"type": "string"},
+    "pool_size": {"type": "integer", "minimum": 0}, "visible_copies": {"type": "integer", "minimum": 0},
+    "remaining": {"type": "integer", "minimum": 0},
+}
+
+
 PLAYER_PROPERTIES = {"game_id": {"type": "string"}, "player_id": {"type": "string"}, "round": {"type": "integer"}}
 
 
@@ -172,6 +181,17 @@ PUBLIC_PLAYER_PROPERTIES = {
     "status": {"enum": ["alive", "eliminated", "winner"]},
     "health": {"type": ["integer", "null"]}, "level": {"type": ["integer", "null"]},
     "placement": {"type": ["integer", "null"], "minimum": 1, "maximum": 8},
+}
+
+
+LAST_FIGHT_PROPERTIES = {
+    "game_id": {"type": "string"}, "round": {"type": ["integer", "null"]},
+    "kind": {"enum": ["none", "minion", "combat"]}, "won": {"type": ["boolean", "null"]},
+    "enemy": {"type": ["object", "null"], "properties": {
+        "level": {"type": "integer"},
+        "board": {**BOARD_PROPERTIES["slots"], "minItems": 0},
+        "traits": OWN_TRAIT_PROPERTIES["traits"]},
+        "required": ["level", "board", "traits"], "additionalProperties": False},
 }
 
 
@@ -246,3 +266,119 @@ DECISION_PROPERTIES = {
 
 DECISION_SCHEMA = {"type": "object", "properties": DECISION_PROPERTIES,
                    "required": list(DECISION_PROPERTIES), "additionalProperties": False}
+
+
+COMMAND_SCHEMA = {"type": "object", "properties": {
+    "action_type": {"type": "integer"}, "x1": {"type": "integer"}, "x2": {"type": "integer"}},
+    "required": ["action_type", "x1", "x2"], "additionalProperties": False}
+
+
+OBSERVATION_SCHEMA = {"type": "object", "properties": {
+    "reward": {"type": "number"}, "start_turn": {"type": "boolean"}, "terminal": {"type": "boolean"},
+    "mask": {"type": "array", "items": COMMAND_SCHEMA}, "text": {"type": ["string", "null"]}},
+    "required": ["reward", "start_turn", "terminal", "mask", "text"], "additionalProperties": False}
+
+
+COMP_RECORD_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "champions": {"type": "array", "items": {"type": "string"}},
+        "games": {"type": "integer", "minimum": 1},
+        "top4": {"type": "integer", "minimum": 0},
+        "win_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "avg_placement": {"type": "number", "minimum": 1, "maximum": 8},
+    },
+    "required": ["champions", "games", "top4", "win_rate", "avg_placement"],
+    "additionalProperties": False,
+}
+
+
+COMP_QUERY_FIELDS = {
+    "source": {"const": "set4-fates-challenger-euw"},
+    "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIMIT},
+    "win_definition": {"const": "top4"},
+    "comps": {"type": "array", "maxItems": MAX_LIMIT, "items": COMP_RECORD_SCHEMA},
+}
+
+
+COMP_CHAMPION_INPUT = {
+    "type": "object",
+    "properties": {
+        "champions": {"type": "array", "minItems": 1, "maxItems": MAX_CHAMPIONS,
+                      "items": {"type": "string", "minLength": 1}},
+        "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIMIT},
+    },
+    "required": ["champions", "limit"],
+    "additionalProperties": False,
+}
+
+
+COMP_CHAMPION_OUTPUT = {
+    "type": "object",
+    "properties": {**COMP_QUERY_FIELDS, "champions": {"type": "array", "items": {"type": "string"},
+                                                     "minItems": 1, "maxItems": MAX_CHAMPIONS}},
+    "required": ["source", "champions", "limit", "win_definition", "comps"],
+    "additionalProperties": False,
+}
+
+
+COMP_TRAIT_INPUT = {
+    "type": "object",
+    "properties": {
+        "trait": {"type": "string", "minLength": 1},
+        "level": {"type": "integer", "minimum": 0, "maximum": MAX_LEVEL},
+        "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIMIT},
+    },
+    "required": ["trait", "level", "limit"],
+    "additionalProperties": False,
+}
+
+
+COMP_TRAIT_OUTPUT = {
+    "type": "object",
+    "properties": {**COMP_QUERY_FIELDS,
+                   "trait": {"type": "string"},
+                   "level": {"type": "integer", "minimum": 0, "maximum": MAX_LEVEL}},
+    "required": ["source", "trait", "level", "limit", "win_definition", "comps"],
+    "additionalProperties": False,
+}
+
+
+ITEM_BUILD_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "items": {"type": "array", "maxItems": 3, "items": {"type": "string"}},
+        "item_ids": {"type": "array", "maxItems": 3, "items": {"type": "string"}},
+        "games": {"type": "integer", "minimum": 1},
+        "top4": {"type": "integer", "minimum": 0},
+        "win_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "avg_placement": {"type": "number", "minimum": 1, "maximum": 8},
+    },
+    "required": ["items", "item_ids", "games", "top4", "win_rate", "avg_placement"],
+    "additionalProperties": False,
+}
+
+
+CHAMPION_ITEMS_INPUT = {
+    "type": "object",
+    "properties": {
+        "champion": {"type": "string", "minLength": 1},
+        "items": {"type": "array", "maxItems": 2, "items": {"type": "string", "minLength": 1}},
+    },
+    "required": ["champion"],
+    "additionalProperties": False,
+}
+
+
+CHAMPION_ITEMS_OUTPUT = {
+    "type": "object",
+    "properties": {
+        "source": {"const": "set4-fates-challenger-euw"},
+        "champion": {"type": "string"},
+        "items": {"type": "array", "maxItems": 2, "items": {"type": "string"}},
+        "win_definition": {"const": "top4"},
+        "builds": {"type": "array", "items": ITEM_BUILD_SCHEMA},
+    },
+    "required": ["source", "champion", "items", "win_definition", "builds"],
+    "additionalProperties": False,
+}

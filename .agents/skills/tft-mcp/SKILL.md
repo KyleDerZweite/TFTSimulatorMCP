@@ -3,12 +3,10 @@ name: tft-mcp
 description: Use the TFT simulator MCP tools when asked to play a simulator game.
 ---
 
-Read `get_decision` first. The server already runs one seeded game for `player_0`.
+A seeded game starts when the host connects. Use `get_decision` for the current observation and legal action mask. Each action returns `reward`, `start_turn`, `terminal`, `mask` and native `text`. Show each result to the model before choosing the next action. Reads and masked rejections do not spend actions.
 
-Use the returned slots and canonical IDs. Empty own board, bench and inventory slots are omitted. Board coordinates are `x=0..6` left to right and `y=0..3` bottom to top. Bench slots are `0..8`, shop slots `0..4`, inventory slots `0..9`.
+Planning ends at `end_turn` or the fifteenth legal action. Stop when `terminal` is true. Full mode controls player_0 against seven baselines. Single-player mode hides opponent scouting and provides `get_last_fight` for the completed fight.
 
-Actions return a receipt and updated `decision`. Reads and rejected actions are free. Use `search_*` for rule IDs, `get_*` for details, and `get_players` plus `get_board(player_id)` for public scouting.
+Board coordinates are x=0..6 left to right and y=0..3 bottom to top. Bench slots are 0..8, shop slots 0..4 and item slots 0..9. Masks use board index x*4+y and bench index 28+slot.
 
-Call `end_turn` when planning is finished or the 14-action budget is exhausted. It runs combat and returns the next decision. Continue until `status.state` is `terminal` and `status.outcome.lobby_complete` is true. Report your placement from the terminal outcome.
-
-For an error, read `code`, `message` and `details` before choosing the next call. A new server process starts a fresh game.
+Rule lookups read installed definitions. Comp and item-build queries use the separate historical database configured by `TFT_MCP_COMP_DB`. Restart the server for a fresh game. The model chooses its own strategy.

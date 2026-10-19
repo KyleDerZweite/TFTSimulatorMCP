@@ -26,9 +26,12 @@ async def client(tmp_path, **environment):
     env = dict(os.environ)
     env.pop("APPIMAGE", None)
     env.pop("TFT_MCP_PROFILE", None)
+    env.pop("TFT_MCP_STREAM_LOG", None)
+    env.pop("TFT_MCP_MODE", None)
     env.update({"TFT_MCP_SEED": "0", "TFT_MCP_AUDIT_PATH": str(tmp_path / "audit.jsonl"),
                 "TFT_MCP_NATIVE_LOG_DIR": str(tmp_path / "native")})
     env.update(environment)
+    env.setdefault("TFT_MCP_STREAM_LOG", "off")
     command = os.environ.get("TFT_MCP_TEST_COMMAND")
     if command:
         env.pop("PYTHONPATH", None)
@@ -92,6 +95,11 @@ def install_units(session, bench=(), board=(), offer='garen', chosen=False):
     return player
 
 
+def observation_round(text):
+    line = next(line for line in text.splitlines() if line.startswith("round "))
+    return int(line.split()[1])
+
+
 def board(x, y):
     return {'kind': 'board', 'x': x, 'y': y}
 
@@ -101,10 +109,20 @@ def bench(slot):
 
 
 def normalized_graph(game):
-    """Retain the graph, normalizing only native wall-clock fields and Player log clocks."""
+    """Retain gameplay, normalizing native clocks and unused campaign preset RNGs."""
     from Simulator.battle.champion import champion
+    from Simulator.battle.combat_context import CombatContext
     from Simulator.game.player import Player
     graph = deepcopy(game)
+    leveling = getattr(graph.game_round, 'leveling_system', None)
+    if leveling is not None:
+        from Simulator.rng import EnvRNG
+        # The campaign uses generate_battle, never generate_set_battle. Native
+        # construction seeds these dormant preset contexts from OS entropy.
+        for composition in leveling.battle_generator.set_composition:
+            for unit in composition:
+                assert unit.ctx is not graph.combat_ctx and unit.ctx.rng is not graph.rng
+                unit.ctx.rng = EnvRNG.from_episode_seed(0)
     seen = set()
     def normalize(value):
         if id(value) in seen:
@@ -118,6 +136,15 @@ def normalized_graph(game):
                 assert line[:8] == f"{value.player_num:<8}"
                 float(line[8:28])  # The unchanged Player.print clock field.
                 lines.append(line[:8] + f"{0:<20}" + line[28:])
+            value.log[:] = lines
+        if isinstance(value, CombatContext):
+            lines = []
+            for line in value.log:
+                if len(line) >= 132 and line[:8].strip() in {'blue', 'red'}:
+                    body, clock = line.rsplit(None, 1)
+                    int(clock)  # Champion.print's wall-clock nanoseconds, after native MILLIS.
+                    line = body + ' 0'
+                lines.append(line)
             value.log[:] = lines
         if hasattr(value, "__dict__"):
             normalize(vars(value))

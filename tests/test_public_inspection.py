@@ -40,7 +40,7 @@ def test_public_projection_uses_keys_and_excludes_nested_private_state(tmp_path)
     assert {'trait_id': 'ninja', 'count': 3, 'tier': 7} in traits['traits']
     players = session.get_players()
     assert players['players'][1] == {'player_id': 'player_1', 'controlled': False,
-        'status': 'alive', 'health': 100, 'level': 1, 'placement': None}
+        'status': 'alive', 'health': 100, 'level': 3, 'placement': None}
     schemas = {**native_inspection_schemas(), **{tool.name: tool.outputSchema for tool in TOOLS}}
     for name, result in [('get_board', board), ('get_traits', traits), ('get_players', players)]:
         encoded = json.loads(json.dumps(result))
@@ -110,7 +110,8 @@ def test_native_removed_players_and_winner_keep_final_public_records(tmp_path):
     for key, player in session.game.player_manager.player_states.items():
         if key != 'player_0':
             player.health = -1000
-    status = session.end_turn()
+    session.end_turn()
+    status = session.get_game_status()
     assert status['outcome']['controlled_placement'] == 1
     snapshot = deepcopy(session.terminal_snapshot)
     public = deepcopy(session.public_final)

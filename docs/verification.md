@@ -1,5 +1,29 @@
 # Verification
 
+## PR 9 integration on 2026-10-19
+
+Tested MCP revision `1b9f753cf53312e12a4d1f7f0bece04a7a6d7f63`, main base `b72adbf3dc18f930630a564d6625d06778b30cab`, original PR head `0effceb0fddaff0fdebd42865930ed144f61d1ae`. Later documentation edits leave production and tests unchanged. The accepted contract is this PR's 20-tool lobby and 19-tool campaign, with native validation and observations.
+
+The simulator remains unchanged at `a197a2a5bfab26c2900ac77e7b48c349efc14016`, source SHA-256 `5d0b5b8f3bcf42818e51af5fb457aa27c7a35456351795abd1d9ef0bb2ef53f8`. A concrete MCP adapter uses its published single-player Gym interface, without requiring unpublished simulator methods.
+
+| Check | Result |
+| --- | --- |
+| Final checkout suite | 213 passed, 1 expected failure in 923.71s. The expected failure is the native late-campaign encoder limit. |
+| Fresh installed SDK acceptance | 13 passed in 343.38s. Includes all 20 lobby tools, three-process full-game replay, 19-tool campaign startup, native campaign loss, audit recovery and shutdown. |
+| External data rebuild | 748,928 boards; all seven tables and metadata match the committed database; 4,321 query comparisons passed; SQLite integrity `ok`. |
+| Installed identity | All 21 Python modules match tested source. Noneditable installation, Python 3.14.7, MCP 1.30.0. |
+| Independent reviews | Standards and Spec reported no remaining adapter findings. Final docs review corrected mode-specific registration descriptions. |
+
+Installed checks run outside both source checkouts with `PYTHONPATH` unset and `TFT_MCP_COMP_DB` pointing to a separate database. Checkout checks use `env -u APPIMAGE PYTHONHASHSEED=0 PYTHONPATH=src <venv>/bin/python -m pytest tests -q`. Installed checks select `test_acceptance.py`, `test_single_player.py` and the SDK test for native campaign loss with the absolute installed `TFT_MCP_TEST_COMMAND`.
+
+The native token encoder asserts `game_round < 40`, although its campaign has 45 controlled rounds. Late progression rolls back, and the final-win test reports this upstream failure as expected. Complete campaign acceptance remains blocked. Assertions stay enabled. Native Codex/Claude model games and playing strength were not checked for this revision. The fork author's Cursor canvas benchmark report was not rerun or rendered. There is no GitHub CI workflow, deployment or persistent host configuration change.
+
+The initial partial suite reported 97 passed and one obsolete description assertion before interruption in a raw protocol test. That test passed separately. Failed fixture and replay probes remain in the evidence logs; corrected rollback and delta tests passed. Active episode RNG remains part of the replay comparison.
+
+Evidence root: `/home/kyle/.local/share/tft-simulator-mcp/pr9-20261019-b5mihahz/`. It retains failed and final logs, archive, installed identity and data manifest. Tested archive SHA-256 is `1280f988d88847c0a0986d9dc6514fdb4183f0bdd194d4ffa6b3cb24dfc91c10`. Downloaded CSV SHA-256 is `df73994ce6172fd810846c92b66c099db488b5af12b27521a6e63fff18882f4e`; items SHA-256 is `f8c7c36a9d52caeab2ccd33fb6c0c224f246b35ff074bdce21d64d4661ac46f0`; database SHA-256 is `9939323da86b80fe775dbdcc9e5bc796d6ec7f3a9118c65a64ea564efb7ec50b`. Raw sources are separate downloads; the committed SQLite index supports runtime queries.
+
+## Earlier verification
+
 Checked on 2026-10-12. Tested MCP revision `3edc3ef69befe1c95b6782d3b2be88c7188f0150`, PR base `63c55f76e0a7649633ee208ba70650c495f36e24`. Subsequent verification-only edits leave production and tests unchanged.
 
 The simulator remains unchanged at `33c2c6eb873da1aaf319dc0c36bcbec1ad20c48d`. Installed source SHA-256 is `43db488008ac7503201978bef81230635d65a7d15c37b82b6cd368d2fa669dcb`.
@@ -20,6 +44,23 @@ No GitHub CI workflow, strength benchmark or authenticated Claude gameplay was c
 
 Silver's feedback produced automatic lifecycle, shared observations, smaller modules and state after actions. `end_turn` remains a model decision. Codex owns the tool loop; Qwen-specific research adds no runtime requirement for this target. [Set 4 sources](set4-sources.md) remain a future offline-data foundation.
 
+## Fork author checks on 2026-10-18
+
+`get_champion_pool` was added after this record. The installed acceptance above does not cover it.
+
+`search_comps_by_champions` and `search_comps_by_trait` were added on 2026-10-18. The index stores champion lists, trait levels, and per-champion item builds with at least 100 boards. `search_champion_items` reads those item builds. The tools do not take `min_games`. Installed SDK acceptance and native gameplay have not been rerun for them.
+
+The model stream transcript was checked on 2026-10-18 from the dirty checkout at HEAD `e31c461a89ae5e84ed62d9f03953ab4ee2605186`. `tests/test_stream_log.py` passed 6 tests in 4.35s and `tests/test_protocol.py` passed 11 tests in 21.22s, using `/home/silver/R/T/.venv` (mcp 1.30.0) with `PYTHONPATH` and simulator revision `d66ce010736047ba914514f2fdd8428e20617030`. The full checkout suite, fresh installed acceptance, and native gameplay were not rerun.
+
+The dependency pin is `a197a2a5bfab26c2900ac77e7b48c349efc14016`, which adds the language-model observation diff. Installed acceptance has not been rerun against that pin.
+
+`TFT_MCP_MODE=single_player` was checked on 2026-10-18 against the simulator checkout at that same pin, with local controlled-step methods added on `TFT_Single_Player_Simulator`. `/home/silver/R/T/.venv` ran `UnitTests/single_player_controlled_test.py`, `test_single_player_env_income`, and `test_action_vector_single_player_steps`: 5 passed. With `PYTHONPATH=src`, `tests/test_single_player.py`, `test_opening_observation_includes_text_and_mask`, and `test_real_seeded_game_lifecycle_and_isolation`: 5 passed. The full checkout suite, installed acceptance, and a native single-player game were not run. The installed Cursor launcher does not include this mode until it is reinstalled.
+
+Single-player tools were then narrowed the same day: `get_players` and `get_board` hidden, `get_last_fight` added, and a campaign summary added to the instructions from the new simulator `campaign_schedule()` and `last_fight`. Simulator `single_player_controlled_test.py`, `early_income_test.py`, `action_space_test.py`, `api_compliance_test.py`, `porosight_render_test.py` and `composition_test.py`: 46 passed. MCP `test_single_player.py`, `test_stream_log.py`, `test_decision.py`, `test_protocol.py`, `test_public_inspection.py`, `test_public_inspection_protocol.py` and `test_inspection_protocol.py`: 54 passed in 225s. A native single-player game is still unexecuted.
+
+A Cursor installation was made on 2026-10-18 at `/home/silver/.local/share/tft-simulator-mcp/cursor-nvZ54sD6/`. Its source is the dirty working tree at HEAD `e31c461a89ae5e84ed62d9f03953ab4ee2605186`, tracked and untracked files without `data/`, archive SHA-256 `50cdc8a81ab2c589f315b8e2cc19612ab073bde7f3b598f5fd718a79a7f7d335`. `comps.sqlite` was copied beside it, SHA-256 `9939323da86b80fe775dbdcc9e5bc796d6ec7f3a9118c65a64ea564efb7ec50b`, and passed through `TFT_MCP_COMP_DB`. pip installed the simulator at the pinned revision with mcp 1.30.0. An SDK stdio smoke run from `/tmp` without `PYTHONPATH`, seed 0, listed 20 tools, returned the full first observation with seven baseline opponents, and answered `get_players` and `search_comps_by_trait`. `.cursor/mcp.json` registers that launcher as `tft`. The full checkout suite, installed SDK acceptance and a native Cursor game (Grok 4.7 High) were not executed.
+
+Native logs became one in-place directory per game on 2026-10-18, with rollback from an in-memory snapshot and `python -m tft_mcp.native_logs` for legacy copies. The checkout suite, with the pinned simulator, ran 135 tests: 132 passed and 3 failed. The failures are `tests/test_single_player.py` (2, `TFT_Single_Player_Simulator` has no `actions_taken`) and `test_tools_describe_installed_simulator_without_set_selector` ("Set 4" in a comp tool description). Concurrent single-player and description edits landed during that run; those files are outside the log change. A rerun of `test_native_logs`, `test_session`, `test_progression`, `test_protocol` and `test_buy_sell` on the current tree passed 33. The change was applied to the Cursor installation's snapshot only, without the concurrent edits. Installed `test_native_logs` passed 5 from `/tmp` without `PYTHONPATH`. An installed SDK run with a masked sale and three `end_turn` calls left one native directory. The cleanup merged the finished Cursor Grok game `e1f7469fbb3a40978e56e72ec4df5047`, 156 directories totalling 94 MB, into one 1.2 MB `log.txt` ending at round 29. All 155 removed copies were verified as byte prefixes of the kept log first.
 ## Fork review on 2026-10-18
 
 Compared main `e31c461a89ae5e84ed62d9f03953ab4ee2605186` with [Silver's fork](https://github.com/silverlight6/TFTSimulatorMCP/commit/0effceb0fddaff0fdebd42865930ed144f61d1ae). Four GPT-6.1-Sol subagents with High Reasoning reviewed standards, SPEC and the four proposed directions. Recommendation: defer a wholesale merge and assess the reusable components separately.

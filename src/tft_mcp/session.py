@@ -7,7 +7,6 @@ import json
 import os
 from pathlib import Path
 import random
-import shutil
 import tempfile
 from functools import wraps
 import sys
@@ -15,29 +14,12 @@ import threading
 import uuid
 
 
+from tft_mcp.comp_index import get_index
 from tft_mcp.errors import SessionError
 
 from tft_mcp.state import (
-    action_snapshot, unit_changes, item_changes, freeze_unit, freeze_player,
-    shop_slots, decision_snapshot, board_slots, bench_slots, inventory_slots, trait_records,
+    freeze_unit, freeze_player, shop_slots, board_slots, bench_slots, inventory_slots, trait_records,
 )
-
-from tft_mcp.action_helpers import (
-    validate_buy_arguments, validate_sell_arguments, validate_location,
-    location_unit, location_flat, owned_locations, azir_guard_coordinates,
-    action_price, catalog_entry, real_items, merge_inventory, copy_weights, check_copy_change,
-)
-
-from tft_mcp.movement import (
-    validate_move_arguments, movement_contract, check_movement,
-)
-
-from tft_mcp.equipment import (
-    validate_equip_arguments, equipment_contract, check_equipment,
-    check_equipment_catalog, equipment_native_traits,
-)
-
-from tft_mcp.purchase import purchase_contract, sale_contract, check_purchase, check_sale
 
 from tft_mcp.simulator_identity import (
     simulator_identity, simulator_defaults,
@@ -76,9 +58,13 @@ class GameSession:
         self.terminal_snapshot = None
         self._records = None
         self._candidate_prepared = False
+        self._native_snapshot = None
         self.public_final = {}
         self.sequence = 0
         self.server_id = uuid.uuid4().hex
+        self.deliver_text = False
+        self.last_reward = 0.0
+        self.mode = "full"
 
     def search_champions(self, query='', cost=None, trait_id=None):
         from tft_mcp import champion_catalog
@@ -91,6 +77,44 @@ class GameSession:
         if champion_id not in champion_catalog.stats.BASE_CHAMPION_LIST:
             raise SessionError('unknown_champion', f'Unknown champion: {champion_id}.', {'champion_id': champion_id})
         return champion_catalog.get_champion(champion_id)
+
+    def get_champion_pool(self, champion_id):
+        """Visible-state pool estimate without reading hidden opponent holdings."""
+        with SIMULATOR_LOCK:
+            if self.game is None:
+                raise SessionError('no_game', 'Start a game before inspecting player state.')
+            from tft_mcp import champion_catalog
+            from tft_mcp.state import champion_copies
+            if champion_id not in champion_catalog.stats.BASE_CHAMPION_LIST:
+                raise SessionError('unknown_champion', f'Unknown champion: {champion_id}.', {'champion_id': champion_id})
+            try:
+                pool_size = champion_catalog.pool_size(champion_id)
+            except KeyError as error:
+                raise SessionError('internal_error', 'Installed pool size is missing.', {'champion_id': champion_id}) from error
+            visible = 0
+            for player_id, player in self.game.player_manager.player_states.items():
+                if self.mode == "single_player" and player_id != "player_0":
+                    continue
+                if player is None:
+                    continue
+                for column in player.board:
+                    for unit in column:
+                        visible += champion_copies(unit, champion_id)
+                if player_id == 'player_0':
+                    for unit in player.bench:
+                        visible += champion_copies(unit, champion_id)
+            return {'game_id': self.game_id, 'round': self.game.game_round.current_round,
+                    'champion_id': champion_id, 'pool_size': pool_size, 'visible_copies': visible,
+                    'remaining': max(0, pool_size - visible)}
+
+    def search_comps_by_champions(self, champions, limit):
+        return get_index().search_comps_by_champions(champions, limit)
+
+    def search_comps_by_trait(self, trait, level, limit):
+        return get_index().search_comps_by_trait(trait, level, limit)
+
+    def search_champion_items(self, champion, items=None):
+        return get_index().search_champion_items(champion, items)
 
     def search_traits(self, query=''):
         from tft_mcp import champion_catalog
@@ -223,10 +247,19 @@ class GameSession:
         self.__dict__.update(candidate)
         self._candidate_prepared = True
         if self.game is not None:
-            candidate_dir = self.native_root / (self.game_id + "-" + uuid.uuid4().hex)
-            accepted_dir = self.native_dir
-            self.native_dir = candidate_dir
-            shutil.copytree(accepted_dir, candidate_dir)
+            self._native_snapshot = {path.relative_to(self.native_dir): path.read_bytes()
+                                     for path in self.native_dir.rglob("*") if path.is_file()}
+
+    def restore_native(self, snapshot):
+        """Return the per-game native directory to its accepted bytes."""
+        for path in self.native_dir.rglob("*"):
+            if path.is_file() and path.relative_to(self.native_dir) not in snapshot:
+                path.unlink()
+        for relative, data in snapshot.items():
+            path = self.native_dir / relative
+            if not path.is_file() or path.read_bytes() != data:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
 
     @contextmanager
     def lifecycle_transaction(self, mutable=False):
@@ -246,10 +279,19 @@ class GameSession:
                 self.publish_audit()
                 self._records = None
                 self._candidate_prepared = False
+                self._native_snapshot = None
             except Exception as error:
                 diagnostic = self.native_dir if self.native_dir != previous["native_dir"] else None
                 failed_id = self.game_id
+                snapshot = self._native_snapshot
                 self.__dict__.update(previous)
+                if snapshot is not None:
+                    try:
+                        self.restore_native(snapshot)
+                    except OSError as restore_error:
+                        raise SessionError("log_unavailable", "Native simulator log could not be restored.", {
+                            "path": str(self.native_dir), "error": str(restore_error),
+                            "cause": str(error)}) from error
                 if isinstance(error, SessionError):
                     if diagnostic is not None:
                         error.details.update(native_log_dir=str(diagnostic), failed_game_id=failed_id)
@@ -261,12 +303,13 @@ class GameSession:
 
     def get_game_status(self):
         with SIMULATOR_LOCK:
+            capacity = self.game.max_actions_per_round if self.game and self.mode == "single_player" else 15
             return {
                 "state": self.state,
                 "game_id": self.game_id,
                 "controlled_player_id": "player_0" if self.game else None,
                 "round": self.game.game_round.current_round if self.game else None,
-                "planning_budget": ({"capacity": 14, "remaining": max(0, 14 - self.game.actions_taken["player_0"])}
+                "planning_budget": ({"capacity": capacity, "remaining": max(0, capacity - self.game.actions_taken["player_0"])}
                                     if self.state == "running" else None),
                 "outcome": deepcopy(self.outcome),
             }
@@ -288,9 +331,10 @@ class GameSession:
         if self.game is None:
             raise SessionError("no_game", "Start a game before inspecting player state.")
         manager = self.game.player_manager
-        if player_id not in manager.player_ids:
+        supported = self._listed_player_ids()
+        if player_id not in supported:
             raise SessionError("invalid_player", "Select a player_id from get_players.", {
-                "player_id": player_id, "supported_ids": sorted(manager.player_ids)})
+                "player_id": player_id, "supported_ids": supported})
         player = manager.player_states.get(player_id)
         if player is None:
             raise SessionError("player_eliminated", f"This player's {category} is unavailable after removal. Use get_players for final public status.", {
@@ -303,7 +347,7 @@ class GameSession:
                 raise SessionError("no_game", "Start a game before inspecting players.")
             manager = self.game.player_manager
             players = []
-            for player_id in sorted(manager.player_ids):
+            for player_id in self._listed_player_ids():
                 player = manager.player_states.get(player_id)
                 placement = self.placements.get(player_id)
                 public = ({"health": player.health, "level": player.level} if player is not None
@@ -311,12 +355,35 @@ class GameSession:
                 status = "alive"
                 if placement == 1:
                     status = "winner"
-                elif placement is not None or player is None:
+                elif (placement is not None or player is None
+                      or self.mode == "single_player" and self.game.episode_outcome == "lost"):
                     status = "eliminated"
                 players.append({"player_id": player_id, "controlled": player_id == "player_0",
                                 "status": status,
                                 "health": public.get("health"), "level": public.get("level"), "placement": placement})
             return {"game_id": self.game_id, "players": players}
+
+    def get_last_fight(self):
+        with SIMULATOR_LOCK:
+            if self.game is None:
+                raise SessionError("no_game", "Start a game before inspecting the last fight.")
+            if self.mode != "single_player":
+                raise SessionError("invalid_input", "get_last_fight is only available in single_player mode.")
+            fight = self.game.last_fight
+            if fight is None:
+                return {"game_id": self.game_id, "round": None, "kind": "none", "won": None, "enemy": None}
+            return {"game_id": self.game_id, **deepcopy(fight)}
+
+    def campaign_schedule(self):
+        with SIMULATOR_LOCK:
+            if self.game is None or self.mode != "single_player":
+                return []
+            return deepcopy(self.game.campaign_schedule())
+
+    def _listed_player_ids(self):
+        if self.mode == "single_player":
+            return ["player_0"]
+        return sorted(self.game.player_manager.player_ids)
 
     def get_board(self, player_id="player_0"):
         with SIMULATOR_LOCK:
@@ -344,9 +411,11 @@ class GameSession:
                     "slots": shop_slots(snapshot)}
 
     def get_decision(self):
-        """One read-only own-state snapshot for the model's next decision."""
+        """The simulator observation: full on the first read, then only what changed."""
         with SIMULATOR_LOCK:
-            return decision_snapshot(self.own_inspection(), self.get_game_status())
+            if self.game is None:
+                raise SessionError("no_game", "Start a game before inspecting player state.")
+            return self._public_observation()
 
     def get_items(self):
         with SIMULATOR_LOCK:
@@ -381,7 +450,9 @@ class GameSession:
             return {"game_id": self.game_id, "round": self.get_game_status()["round"]}
 
     @transactional
-    def start_game(self, seed):
+    def start_game(self, seed, mode="full"):
+        if mode not in {"full", "single_player"}:
+            raise SessionError("invalid_input", "mode must be full or single_player.", {"mode": mode})
         if type(seed) is not int or not 0 <= seed <= 2147483647:
             raise SessionError("invalid_input", "seed must be an integer from 0 through 2147483647.")
         if self.state != "idle":
@@ -422,18 +493,26 @@ class GameSession:
                                  deepcopy(origin_class.game_compositions_base),
                                  {key: 0 for key in champion.test_multiple}, ListProxy("log"))
             with self.simulator_scope(native_dir=candidate_dir):
-                candidate = TFT_Simulator(TFTConfig())
-                candidate.reset(seed=seed)
-                baselines = {f"player_{i}": Default_Agent(False) for i in range(1, 8)}
+                if mode == "single_player":
+                    from tft_mcp.single_player import SinglePlayer
+                    candidate = SinglePlayer(seed)
+                    baselines = {}
+                else:
+                    candidate = TFT_Simulator(TFTConfig())
+                    candidate.reset(seed=seed)
+                    baselines = {f"player_{i}": Default_Agent(False) for i in range(1, 8)}
             self.record("game_started", game_id=game_id, seed=seed, baseline_seed=seed,
-                        baseline="Simulator.generators.default_agent.Default_Agent(False)",
+                        baseline=("generated" if mode == "single_player"
+                                  else "Simulator.generators.default_agent.Default_Agent(False)"),
                         controlled_player_id="player_0", hash_seed=os.environ.get("PYTHONHASHSEED"), hash_probe=hash("tft-mcp"),
                         simulator=simulator_identity(), runtime={
                             "python": sys.version, "implementation": sys.implementation.name,
                             "dependencies": {name: metadata.version(name) for name in
                                              ("numpy", "PettingZoo", "gymnasium", "mcp")},
                         }, configuration={
-                            "num_players": 8, "max_actions_per_round": 15,
+                            "mode": mode,
+                            "num_players": 1 if mode == "single_player" else 8,
+                            "max_actions_per_round": 15,
                             "reward_type": "winloss", "render_mode": None,
                             "render_path": "Games", "multi_step_position": False,
                             "preset_battle": False, "step_until_units_placed": False,
@@ -466,8 +545,10 @@ class GameSession:
         self.game = candidate
         self.game_id = game_id
         self.baselines = baselines
+        self.mode = mode
         self.native_dir = candidate_dir
         self.state = "running"
+        self.deliver_text = True
         return self.get_game_status()
 
     @transactional
@@ -502,30 +583,38 @@ class GameSession:
             raise SessionError("no_game", "Start a game first.")
         if self.state == "terminal":
             raise SessionError("game_terminal", "The completed game accepts no more actions.")
-        if (self.game.agent_selection != "player_0" or self.game.truncations["player_0"]
+        if self.mode == "single_player":
+            return
+        if (self.game.agent_selection != "player_0" or self.game.truncations.get("player_0")
                 or self.game.terminations.get("player_0", True)):
             raise SessionError("internal_error", "No controlled decision is available.")
 
-    def baseline_action(self, player_id):
-        player = self.game.player_manager.player_states[player_id]
-        mask = self.game.player_manager.action_handlers[player_id].fetch_action_mask()
-        encoded = self.baselines[player_id].policy(player, player.shop,
-                                                   self.game.game_round.current_round, mask)
-        action = [int(part) for part in encoded.split("_")]
-        return (action + [0, 0])[:3]
+    def _mask_command(self, action):
+        return {"action_type": int(action[0]), "x1": int(action[1]), "x2": int(action[2])}
 
-    def step(self, action, kind):
+    def _public_observation(self, step_result=None):
+        if self.mode == "single_player":
+            with self.simulator_scope():
+                observed = self.game.observe()
+        else:
+            observed = self.game.llm_observe("player_0")
+        terminal = bool(observed["terminal"] or self.state == "terminal")
+        if step_result is not None:
+            self.last_reward = step_result["rewards"]["player_0"]
+            start_turn = bool(step_result["start_turn"] or terminal)
+        else:
+            start_turn = bool(self.deliver_text or terminal)
+        return {"reward": self.last_reward, "start_turn": start_turn, "terminal": terminal,
+                "mask": [self._mask_command(action) for action in observed["mask"]],
+                "text": observed["text"]}
+
+    def _living_players(self):
         game = self.game
-        player_id = game.agent_selection
-        round_number = game.game_round.current_round
-        retained = [(key, player) for key, player in game.player_manager.player_states.items()
-                    if player is not None and not game.terminations.get(key, True)]
-        alive = game.num_alive
-        before = (round_number, sum(game.actions_taken.values()), tuple(game.agents))
-        game.step(action)
-        after = (game.game_round.current_round, sum(game.actions_taken.values()), tuple(game.agents))
-        if before == after:
-            raise SessionError("internal_error", "Simulator step made no bounded progress.")
+        return [(key, player) for key, player in game.player_manager.player_states.items()
+                if player is not None and not game.terminations.get(key, True)]
+
+    def _note_removals(self, retained, alive):
+        game = self.game
         for key, player in retained:
             removed = game.player_manager.player_states.get(key) is None
             if removed and key not in self.placements and player.health <= 0:
@@ -538,167 +627,136 @@ class GameSession:
                 self.public_final[key] = {"health": player.health, "level": player.level}
             if key == "player_0" and key in self.placements and self.terminal_snapshot is None:
                 self.terminal_snapshot = freeze_player(player, game.game_round.current_round)
-        self.record("progression", game_id=self.game_id, player_id=player_id, round=round_number,
-                    kind=kind, action=action, placements=dict(self.placements),
-                    native_log_dir=str(self.native_dir))
 
-    def advance(self, old_round=None):
-        for _ in range(MAX_PROGRESS_STEPS):
-            game = self.game
-            if not game.agents or all(game.terminations.values()):
-                self.state = "terminal"
-                self.outcome = {"controlled_placement": self.placements["player_0"],
-                                "lobby_complete": True, "reason": "lobby_complete"}
-                self.record("lobby_complete", game_id=self.game_id, outcome=self.outcome,
-                            placements=self.placements, native_log_dir=str(self.native_dir))
-                return
-            selected = game.agent_selection
-            if selected == "player_0" and not game.terminations[selected] and not game.truncations[selected]:
-                if old_round is None or game.game_round.current_round > old_round:
-                    return
-            if game.terminations[selected] or game.truncations[selected]:
-                self.step(None, "cleanup")
-            elif selected == "player_0":
-                self.step([0, 0, 0], "controlled_drain")
-            else:
-                self.step(self.baseline_action(selected), "baseline")
-        raise SessionError("internal_error", "Simulator progression exceeded 6000 steps.")
+    def _record_trace(self, result, kind):
+        for entry in result["trace"]:
+            self.record("progression", game_id=self.game_id, player_id=entry["player_id"],
+                        round=entry["round"], kind=kind if entry["player_id"] == "player_0" else "baseline",
+                        action=entry["action"], placements=dict(self.placements),
+                        native_log_dir=str(self.native_dir))
 
-    @transactional
-    def controlled_action(self, action):
-        """Adapter seam for already-validated singular action tools."""
-        self.require_action_budget()
-        with self.simulator_scope():
-            self.step(action, "controlled_action")
-            self.advance()
-        return self.get_game_status()
+    def _snapshot_single_player(self, episode):
+        player = self.game.player_manager.player_states.get("player_0")
+        if player is not None and self.terminal_snapshot is None:
+            self.public_final["player_0"] = {"health": player.health, "level": player.level}
+            self.terminal_snapshot = freeze_player(player, self.game.last_fight["round"])
+        if episode == "won":
+            self.placements["player_0"] = 1
 
-    def require_action_budget(self):
-        self.require_decision()
-        if self.get_game_status()["planning_budget"]["remaining"] <= 0:
-            raise SessionError("budget_exhausted", "Only end_turn is available until the next round.")
+    def _finish_lobby(self, result):
+        if not result["terminal"] or self.state == "terminal":
+            return result
+        episode = getattr(self.game, "episode_outcome", None)
+        if episode in {"won", "lost"}:
+            self._snapshot_single_player(episode)
+        self.state = "terminal"
+        self.outcome = {"controlled_placement": self.placements.get("player_0"),
+                        "lobby_complete": True, "reason": "lobby_complete"}
+        self.record("lobby_complete", game_id=self.game_id, outcome=self.outcome,
+                    placements=self.placements, native_log_dir=str(self.native_dir))
+        return result
+
+    def _apply_result(self, retained, result, kind, alive=0):
+        self._note_removals(retained, alive)
+        self._record_trace(result, kind)
+        self._finish_lobby(result)
+        self.deliver_text = bool(result["start_turn"] or result["terminal"] or self.state == "terminal")
+        return self._public_observation(result)
 
     @transactional
     def refresh_shop(self, **arguments):
         if arguments:
             raise SessionError("invalid_input", "refresh_shop takes no arguments.")
-        self.require_action_budget()
-        player = self.game.player_manager.player_states["player_0"]
-        cost, gold = player.refresh_cost, player.gold
-        if gold < cost:
-            raise SessionError("insufficient_gold", "Shop refresh costs more gold than is available.",
-                               {"resource": "gold", "required": cost, "available": gold})
-        shop, champions = player.shop, player.shop_champions
-        before_status = self.get_game_status()
-        status = self.controlled_action([2, 0, 0])
-        if player.gold != gold - cost or player.shop is shop or player.shop_champions is champions:
-            raise SessionError("internal_error", "Shop refresh postconditions failed.")
-        check_action_status(before_status, status, self.game.agent_selection)
-        slots = self.get_shop()["slots"]
-        if len(slots) != 5:
-            raise SessionError("internal_error", "Shop refresh did not produce five offers.")
-        return {"gold_spent": cost, "slots": slots, "status": status}
+        return self._controlled([2, 0, 0], "refresh_shop")
 
     @transactional
     def buy_xp(self, **arguments):
         if arguments:
             raise SessionError("invalid_input", "buy_xp takes no arguments.")
-        self.require_action_budget()
-        player = self.game.player_manager.player_states["player_0"]
-        level, xp, capacity = player.level, player.exp, player.max_units
-        cap, cost, gold = player.max_level, player.exp_cost, player.gold
-        thresholds = list(player.level_costs)
-        if level >= cap:
-            raise SessionError("level_cap", "The player has reached the native level cap.",
-                               {"level": level, "max_level": cap})
-        if gold < cost:
-            raise SessionError("insufficient_gold", "Experience costs more gold than is available.",
-                               {"resource": "gold", "required": cost, "available": gold})
-        before_status = self.get_game_status()
-        status = self.controlled_action([1, 0, 0])
-        if not level <= player.level <= cap:
-            raise SessionError("internal_error", "Experience level postcondition failed.")
-        spent_xp = sum(thresholds[level:player.level])
-        available_xp = xp + cost
-        valid_xp = (player.exp == 0 and spent_xp <= available_xp if player.level == cap else
-                    player.exp == available_xp - spent_xp and 0 <= player.exp < thresholds[player.level])
-        if player.gold != gold - cost or player.max_units != capacity + player.level - level or not valid_xp:
-            raise SessionError("internal_error", "Experience postconditions failed.")
-        check_action_status(before_status, status, self.game.agent_selection)
-        return {"gold_spent": cost, "xp_before": xp, "xp": player.exp,
-                "level_before": level, "level": player.level, "unit_capacity": player.max_units, "status": status}
+        return self._controlled([1, 0, 0], "buy_xp")
 
     @transactional
     def buy_unit(self, **arguments):
-        validate_buy_arguments(arguments)
-        self.require_action_budget()
-        player = self.game.player_manager.player_states["player_0"]
-        contract = purchase_contract(player, arguments["shop_slot"])
-        before = action_snapshot(player)
-        status = self.controlled_action(contract["action"])
-        after = action_snapshot(player)
-        receipt = check_purchase(player, contract, before, after)
-        return {**receipt, "unit_changes": unit_changes(before, after),
-                "item_changes": item_changes(before, after), "status": status}
+        return self._controlled([3, arguments["shop_slot"], 0], "buy_unit")
 
     @transactional
     def sell_unit(self, **arguments):
-        validate_sell_arguments(arguments)
-        self.require_action_budget()
-        player = self.game.player_manager.player_states["player_0"]
-        contract = sale_contract(player, arguments["location"])
-        before = action_snapshot(player)
-        status = self.controlled_action(contract["action"])
-        after = action_snapshot(player)
-        receipt = check_sale(player, contract, before, after)
-        return {**receipt, "unit_changes": unit_changes(before, after), "status": status}
+        return self._controlled([4, _flat_location(arguments["location"]), 0], "sell_unit")
 
     @transactional
     def move_unit(self, **arguments):
-        validate_move_arguments(arguments)
-        self.require_action_budget()
-        source, target = arguments["source"], arguments["target"]
-        player = self.game.player_manager.player_states["player_0"]
-        unit = location_unit(player, source)
-        if unit is None:
-            raise SessionError("empty_slot", "Select an occupied owned source.", {"location": source})
-        movement = movement_contract(player, source, target)
-        before = action_snapshot(player)
-        before_status = self.get_game_status()
-        status = self.controlled_action([5, location_flat(source), location_flat(target)])
-        after = action_snapshot(player)
-        check_movement(player, movement, before, after)
-        check_action_status(before_status, status, self.game.agent_selection)
-        return {"source": deepcopy(source), "target": deepcopy(target),
-                "unit_changes": unit_changes(before, after), "status": status}
+        return self._controlled([5, _flat_location(arguments["source"]), _flat_location(arguments["target"])],
+                                "move_unit")
 
     @transactional
     def equip_item(self, **arguments):
-        validate_equip_arguments(arguments)
-        self.require_action_budget()
-        slot, target = arguments["item_slot"], arguments["target"]
-        player = self.game.player_manager.player_states["player_0"]
-        contract = equipment_contract(player, slot, target)
-        before = action_snapshot(player)
-        before_status = self.get_game_status()
-        status = self.controlled_action([6, location_flat(target), slot])
-        after = action_snapshot(player)
-        check_equipment(player, contract, before, after)
-        check_action_status(before_status, status, self.game.agent_selection)
-        return {"item_slot": slot, "item_id": contract["item"], "target": deepcopy(target),
-                "unit_changes": unit_changes(before, after), "item_changes": item_changes(before, after),
-                "kayn_form": player.kayn_form, "status": status}
+        return self._controlled([6, _flat_location(arguments["target"]), arguments["item_slot"]], "equip_item")
+
+    def _controlled(self, action, kind):
+        self.require_decision()
+        if self.mode == "single_player":
+            with self.simulator_scope():
+                result = self.game.step(action)
+            self._require_accepted(result)
+            return self._apply_result([], result, kind)
+        retained = self._living_players()
+        alive = self.game.num_alive
+        with self.simulator_scope():
+            result = self.game.step_controlled([action], ("player_0",))
+            self._require_accepted(result)
+            self._note_removals(retained, alive)
+            result = self._finish_until_decision(result)
+            if action[0] in (5, 6) and not result["start_turn"] and not result["terminal"]:
+                from Simulator.encoding.llm_observation import remember_action
+                # Native movement/equipment hints omit some fields after swaps or merges.
+                # Ask its native renderer to compare every visible section.
+                remember_action(self.game, "player_0", action, True, True)
+        return self._apply_result([], result, kind)
+
+    def _require_accepted(self, result):
+        if not result["accepted"]:
+            raise SessionError("masked", "The action failed.", {
+                "action": self._mask_command(result["action"]),
+                "mask": [self._mask_command(command) for command in result["mask"]],
+            })
 
     @transactional
     def end_turn(self):
         self.require_decision()
-        old_round = self.game.game_round.current_round
+        if self.mode == "single_player":
+            with self.simulator_scope():
+                result = self.game.finish_round()
+            self._require_accepted(result)
+            return self._apply_result([], result, "end_turn")
         with self.simulator_scope():
-            self.advance(old_round)
-        return self.get_game_status()
+            retained = self._living_players()
+            alive = self.game.num_alive
+            result = self.game.finish_controlled_round(("player_0",))
+            self._note_removals(retained, alive)
+            result = self._finish_until_decision(result)
+        return self._apply_result([], result, "end_turn")
+
+    def _finish_until_decision(self, result):
+        """Finish baselines after elimination on either explicit or automatic combat."""
+        trace = list(result["trace"])
+        reward = result["rewards"]["player_0"]
+        for _ in range(MAX_PROGRESS_STEPS):
+            controlled_ready = (self.game.agent_selection == "player_0"
+                                and not self.game.terminations.get("player_0", True)
+                                and not self.game.truncations.get("player_0"))
+            if result["terminal"] or controlled_ready:
+                return {**result, "trace": trace,
+                        "rewards": {**result["rewards"], "player_0": reward}}
+            retained = self._living_players()
+            alive = self.game.num_alive
+            result = self.game.finish_controlled_round(("player_0",))
+            self._note_removals(retained, alive)
+            trace.extend(result["trace"])
+            reward += result["rewards"]["player_0"]
+        raise SessionError("internal_error", "Simulator progression exceeded 6000 steps.")
 
 
-def check_action_status(before, after, selection):
-    if (after["state"] != "running" or after["round"] != before["round"] or selection != "player_0"
-            or after["planning_budget"]["remaining"] != before["planning_budget"]["remaining"] - 1):
-        raise SessionError("internal_error", "Singular action changed the decision boundary.")
+def _flat_location(location):
+    if location["kind"] == "board":
+        return location["x"] * 4 + location["y"]
+    return 28 + location["slot"]

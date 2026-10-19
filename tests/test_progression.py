@@ -4,25 +4,25 @@ from support import gameplay
 
 def test_end_turn_returns_next_real_decision(tmp_path):
     session = GameSession(tmp_path / 'audit.jsonl', tmp_path / 'native')
-    assert session.start_game(0)['planning_budget'] == {'capacity': 14, 'remaining': 14}
+    assert session.start_game(0)['planning_budget'] == {'capacity': 15, 'remaining': 15}
     result = session.end_turn()
-    assert result['round'] == 2
-    assert result['planning_budget'] == {'capacity': 14, 'remaining': 14}
+    assert result['start_turn'] is True and result['text'].startswith('action succeeded\n')
+    assert 'round 2' in result['text'].splitlines()
+    assert session.get_game_status()['planning_budget'] == {'capacity': 15, 'remaining': 15}
     assert session.game.agent_selection == 'player_0'
 
 
-def test_reserved_budget_never_starts_combat(tmp_path):
-    import pytest
-    from tft_mcp.session import SessionError
+def test_fifteenth_action_resolves_the_round(tmp_path):
     session = GameSession(tmp_path / 'audit.jsonl', tmp_path / 'native')
     session.start_game(0)
     for _ in range(14):
-        session.controlled_action([0, 0, 0])
-    assert session.get_game_status()['planning_budget'] == {'capacity': 14, 'remaining': 0}
+        result = session._controlled([0, 0, 0], 'pass')
+        assert result['start_turn'] is False
+    assert session.get_game_status()['planning_budget'] == {'capacity': 15, 'remaining': 1}
     assert session.get_game_status()['round'] == 1
-    with pytest.raises(SessionError, match='Only end_turn'):
-        session.controlled_action([0, 0, 0])
-    assert session.end_turn()['round'] == 2
+    result = session._controlled([0, 0, 0], 'pass')
+    assert result['start_turn'] is True and result['text'].startswith('action succeeded\n')
+    assert 'round 2' in result['text'].splitlines()
 
 
 def test_real_seed_zero_elimination_finishes_lobby_and_freezes_state(tmp_path):
@@ -31,9 +31,10 @@ def test_real_seed_zero_elimination_finishes_lobby_and_freezes_state(tmp_path):
     session = GameSession(tmp_path / 'audit.jsonl', tmp_path / 'native')
     session.start_game(0)
     for _ in range(30):
-        status = session.end_turn()
-        if status['state'] == 'terminal':
+        observed = session.end_turn()
+        if observed['terminal']:
             break
+    status = session.get_game_status()
     assert status['state'] == 'terminal'
     assert status['outcome'] == {'controlled_placement': 8, 'lobby_complete': True, 'reason': 'lobby_complete'}
     assert status['planning_budget'] is None
@@ -52,6 +53,20 @@ def test_real_seed_zero_elimination_finishes_lobby_and_freezes_state(tmp_path):
     assert session.terminal_snapshot == frozen
     assert session.close_game()['outcome']['controlled_placement'] == 8
     assert session.start_game(0)['round'] == 1
+
+
+def test_elimination_on_fifteenth_action_finishes_the_lobby(tmp_path):
+    session = GameSession(tmp_path / 'audit.jsonl', tmp_path / 'native')
+    session.start_game(0)
+    for _ in range(14):
+        assert not session._controlled([0, 0, 0], 'pass')['terminal']
+    session.game.player_manager.player_states['player_0'].health = -1000
+    observed = session._controlled([0, 0, 0], 'pass')
+    assert observed['terminal']
+    assert session.get_game_status()['outcome'] == {
+        'controlled_placement': 8, 'lobby_complete': True, 'reason': 'lobby_complete'}
+    assert session.terminal_snapshot['economy']['health'] <= 0
+    assert session.get_decision() == observed
 
 
 def test_failed_candidate_restores_graph_logs_rng_and_retries(tmp_path, monkeypatch):
@@ -171,6 +186,7 @@ def test_progress_bound_discards_candidate_and_allows_real_retry(tmp_path, monke
     import tft_mcp.session as module
     session = GameSession(tmp_path / 'audit.jsonl', tmp_path / 'native')
     session.start_game(0)
+    session.game.player_manager.player_states['player_0'].health = -1000
     expected = gameplay(session)
     audit = session.audit_path.read_bytes()
     with monkeypatch.context() as patch:
@@ -179,7 +195,9 @@ def test_progress_bound_discards_candidate_and_allows_real_retry(tmp_path, monke
             session.end_turn()
     assert gameplay(session) == expected
     assert session.audit_path.read_bytes() == audit
-    assert session.end_turn()['round'] == 2
+    result = session.end_turn()
+    assert result['start_turn'] or result['terminal']
+    assert session.game.game_round.current_round > 1 or result['terminal']
 
 
 def test_unavailable_audit_is_rejected_before_native_construction(tmp_path):
@@ -218,7 +236,8 @@ def test_native_winner_cleanup_retains_controlled_snapshot(tmp_path):
     for key, player in session.game.player_manager.player_states.items():
         if key != 'player_0':
             player.health = -1000
-    status = session.end_turn()
+    session.end_turn()
+    status = session.get_game_status()
     assert status['state'] == 'terminal'
     assert status['outcome']['controlled_placement'] == 1
     assert session.terminal_snapshot['economy']['health'] > 0

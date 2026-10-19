@@ -10,3 +10,10 @@ dist/
 !.env.example
 logs/
 log.txt
+.cursor/
+grok-*model-stream.txt
+data/set4/*
+!data/set4/README.md
+!data/set4/player-results/
+data/set4/player-results/*
+!data/set4/player-results/comps.sqlite

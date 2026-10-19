@@ -82,10 +82,13 @@ def test_read_purity_preserves_entire_game_rng_caches_aliases_and_later_progress
         for name in INSPECTION_TOOLS:
             getattr(session, name)()
         a, b = session.end_turn(), reference.end_turn()
-        assert {k: v for k, v in a.items() if k != 'game_id'} == {k: v for k, v in b.items() if k != 'game_id'}
+        assert a == b
+        round_number = session.game.game_round.current_round
+        assert round_number == reference.game.game_round.current_round
         for key, actual in session.game.player_manager.player_states.items():
             if actual is not None:
-                assert freeze_player(actual, a['round']) == freeze_player(reference.game.player_manager.player_states[key], b['round'])
+                assert freeze_player(actual, round_number) == freeze_player(
+                    reference.game.player_manager.player_states[key], round_number)
         assert pickle.dumps(session.game.rng) == pickle.dumps(reference.game.rng)
         assert pickle.dumps(session.baseline_rng) == pickle.dumps(reference.baseline_rng)
 
@@ -93,12 +96,12 @@ def test_read_purity_preserves_entire_game_rng_caches_aliases_and_later_progress
 def test_exhausted_budget_and_stored_traits_are_read_without_recalculation(tmp_path):
     session = started(tmp_path)
     for _ in range(14):
-        session.controlled_action([0, 0, 0])
+        session._controlled([0, 0, 0], "pass")
     player = session.game.player_manager.player_states['player_0']
     player.team_composition['ninja'] = 3
     player.team_tiers['ninja'] = 7
     assert {'trait_id': 'ninja', 'count': 3, 'tier': 7} in session.get_traits()['traits']
-    assert session.get_economy()['planning_budget'] == session.get_game_status()['planning_budget'] == {'capacity': 14, 'remaining': 0}
+    assert session.get_economy()['planning_budget'] == session.get_game_status()['planning_budget'] == {'capacity': 15, 'remaining': 1}
     before = pickle.dumps(session.game)
     for name in INSPECTION_TOOLS:
         getattr(session, name)()
@@ -113,7 +116,8 @@ def test_terminal_winner_records_are_copied_and_missing_snapshot_is_an_error(tmp
     for key, player in session.game.player_manager.player_states.items():
         if key != 'player_0':
             player.health = -1000
-    assert session.end_turn()['outcome']['controlled_placement'] == 1
+    session.end_turn()
+    assert session.get_game_status()['outcome']['controlled_placement'] == 1
     snapshot = deepcopy(session.terminal_snapshot)
     public = deepcopy(session.public_final)
     for name in INSPECTION_TOOLS:
@@ -170,6 +174,7 @@ def test_terminal_negative_health_is_retained_without_clamping(tmp_path):
     session = started(tmp_path)
     for player in session.game.player_manager.player_states.values():
         player.health = -1000
-    assert session.end_turn()['state'] == 'terminal'
+    session.end_turn()
+    assert session.get_game_status()['state'] == 'terminal'
     assert session.get_economy()['health'] == session.terminal_snapshot['economy']['health'] < 0
     assert session.get_economy()['planning_budget'] is None
