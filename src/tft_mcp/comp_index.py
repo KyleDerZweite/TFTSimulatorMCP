@@ -122,9 +122,10 @@ def rounded_ratio(numerator, denominator, places):
     return float((Decimal(numerator) / Decimal(denominator)).quantize(quantum, rounding=ROUND_HALF_UP))
 
 
-def load_item_catalog():
+def load_item_catalog(items_path=None):
     """Riot display names for the Fates item ids, paired with simulator ids."""
-    rows = json.loads(default_items_path().read_text())
+    path = default_items_path() if items_path is None else Path(items_path)
+    rows = json.loads(path.read_text())
     catalog = {}
     for row in rows:
         item_id = row['id']
@@ -253,7 +254,7 @@ def retain_item_builds(item_stats, minimum):
     return {key: slot for key, slot in item_stats.items() if slot[0] >= minimum}
 
 
-def build_boards(boards, db_path, minimum_games=1):
+def build_boards(boards, db_path, minimum_games=1, items_path=None):
     """Write an index from explicit boards. Each board has placement, units and traits."""
     raw_comps, raw_traits, raw_items = aggregate(board_record(board) for board in boards)
     comp_stats, trait_stats = retain_frequent(raw_comps, raw_traits, minimum_games)
@@ -268,11 +269,12 @@ def build_boards(boards, db_path, minimum_games=1):
         'csv_sha256': '',
         'win_definition': WIN_DEFINITION,
     }
-    write_index(comp_stats, trait_stats, db_path, meta, raw_comps, raw_traits, item_stats)
+    write_index(comp_stats, trait_stats, db_path, meta, raw_comps, raw_traits, item_stats,
+                items_path=items_path)
     return meta
 
 
-def build_database(csv_path, db_path):
+def build_database(csv_path, db_path, items_path=None):
     """Aggregate the pinned Challenger CSV into a SQLite comp index."""
     csv_path = Path(csv_path)
     digest = file_sha256(csv_path)
@@ -319,7 +321,7 @@ def build_database(csv_path, db_path):
     if len(item_stats) != OFFICIAL_ITEM_BUILDS:
         raise ValueError(
             f'{len(item_stats)} item builds does not match the pinned Challenger extract.')
-    catalog = load_item_catalog()
+    catalog = load_item_catalog(items_path)
     stored_items = retain_item_builds(item_stats, MIN_COMP_GAMES)
     if len(stored_items) != OFFICIAL_STORED_ITEM_BUILDS:
         raise ValueError(
@@ -344,12 +346,13 @@ def build_database(csv_path, db_path):
         'csv_sha256': digest,
         'win_definition': WIN_DEFINITION,
     }
-    write_index(stored_comps, stored_traits, db_path, meta, comp_stats, trait_stats, stored_items)
+    write_index(stored_comps, stored_traits, db_path, meta, comp_stats, trait_stats, stored_items,
+                items_path=items_path)
     return meta
 
 
 def write_index(comp_stats, trait_stats, db_path, meta, roster_comps=None, roster_traits=None,
-                item_builds=None):
+                item_builds=None, items_path=None):
     db_path = Path(db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     temporary = db_path.with_name(db_path.name + '.tmp')
@@ -359,7 +362,7 @@ def write_index(comp_stats, trait_stats, db_path, meta, roster_comps=None, roste
     roster_comps = comp_stats if roster_comps is None else roster_comps
     roster_traits = trait_stats if roster_traits is None else roster_traits
     item_builds = {} if item_builds is None else item_builds
-    catalog = load_item_catalog()
+    catalog = load_item_catalog(items_path)
     champion_names = sorted({name for names in roster_comps for name in names})
     trait_names = sorted({trait for (_names, trait, _level) in roster_traits})
     _reject_ambiguous_names(champion_names, 'Champion')
@@ -715,10 +718,11 @@ def get_index():
 def main(argv=None):
     parser = argparse.ArgumentParser(description='Build the Set 4 Challenger comp index.')
     parser.add_argument('--csv', type=Path, default=default_csv_path())
+    parser.add_argument('--items', type=Path, default=default_items_path())
     parser.add_argument('--database', type=Path, default=repository_database_path())
     args = parser.parse_args(argv)
     try:
-        meta = build_database(args.csv, args.database)
+        meta = build_database(args.csv, args.database, items_path=args.items)
     except ValueError as error:
         print(error, file=sys.stderr)
         return 1
