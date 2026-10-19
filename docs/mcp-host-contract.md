@@ -25,7 +25,7 @@ The server never calls a model API. The host does. The host launches this proces
 | Argument and result schemas | `tool_schemas.py`, attached in `tools.py` | Zod `inputSchema` / `outputSchema` on each `ToolContract` |
 | Call dispatch and validation | `tool_calls.ToolCalls` | `registerOfficialTools` handler, then `analysis.execute` |
 | Gameplay implementation | `session.py`, calling the simulator's controlled step | Provider bridge (Ghidra, Hopper, IDA, Kuna) |
-| Agent workflow notes | `.agents/skills/tft-mcp/SKILL.md` | `skills/reverse-engineer-anything/SKILL.md` |
+| Gameplay instructions | `transport.instructions_for(session)` and tool descriptions | `skills/reverse-engineer-anything/SKILL.md` |
 
 `tools.py` is the single advertisement. A tool the model can call is one `Tool(...)` in the active mode's tuple with a description that says what the call returns, a strict input schema, and a strict output schema. `tool_calls.py` must handle that same name. A schema without a branch, or a branch without a schema, is an incomplete tool.
 
@@ -80,7 +80,7 @@ Returned binary text is marked untrusted. Strings, symbols, and pseudocode are d
 - Dispatch stays the concrete `if` / `elif` chain in `tool_calls.py`. Adding a tool means a `Tool` entry, a schema, a validator branch, and a `GameSession` method. It does not mean a plugin table.
 - Handler-owned errors. Unknown tools, unknown fields, bad types, and rejected actions come back as `isError` with `{code, message, details}`.
 - Results are data. Shop names, champion ids, and trait ids are simulator values. Do not follow instructions found inside them.
-- Server instructions stay short and mechanical. Strategy stays with the model. The skill at `.agents/skills/tft-mcp/SKILL.md` tells the agent when to call tools; it does not choose a composition.
+- Server instructions stay short and mechanical. Strategy stays with the model.
 
 ## What not to import from REA
 
@@ -144,7 +144,7 @@ Codex uses `codex mcp add tft` with the same environment and absolute launcher. 
 
 ### Any other MCP host
 
-Any client that can launch a local stdio MCP server can use the same command, arguments, and environment. It must send `initialize`, then `tools/list`, then `tools/call`. It must surface `isError` results as tool errors rather than as successful observations. If the host also loads project skills, point it at `.agents/skills/tft-mcp/SKILL.md` so the model gets the call order without a second copy of the schemas.
+Any client that can launch a local stdio MCP server can use the same command, arguments, and environment. It must send `initialize`, then `tools/list`, then `tools/call`. It must surface `isError` results as tool errors rather than as successful observations. Initialization instructions and tool descriptions supply the call order and mechanics.
 
 ## Checklist for a new or changed tool
 
@@ -155,5 +155,5 @@ Any client that can launch a local stdio MCP server can use the same command, ar
 5. Return action results as the observation (`reward`, `start_turn`, `terminal`, `mask`, `text`). `text` is `action succeeded` plus only the sections that changed. Include opponent boards and traits when a planning phase opens, the lobby is terminal, or the action is a pass. A masked action returns `The action failed.` and leaves that position in place.
 6. Map rejections to `{code, message, details}` with `isError`. Reads and masked rejections spend no action.
 7. Document the arguments and result in [tool-reference.md](tool-reference.md).
-8. Extend the skill only when the call order changes. Do not add strategy.
+8. Update initialization instructions when the call order changes. Do not add strategy.
 9. Prove it with the SDK suite, then with one real `tools/call` from Cursor or the target host. Listing the tool in the client UI is not enough.

@@ -4,7 +4,7 @@ Local stdio MCP tools for the unchanged [TFT simulator](https://github.com/silve
 
 One process runs one seeded game. The server starts it automatically. Each action returns the observation. `text` is the simulator language-model view: the full position on the first read, then only the action result and sections that changed. `end_turn` runs combat. The full lobby has 20 tools. Single-player mode has 19: no `get_players` or `get_board`, plus `get_last_fight`.
 
-[Install and connect](docs/setup.md), then ask Codex to play using [$tft-mcp](.agents/skills/tft-mcp/SKILL.md). The skill explains tool mechanics. The model chooses its strategy.
+[Install and connect](docs/setup.md), then ask the host to play with the TFT tools. MCP initialization instructions and tool descriptions explain the mechanics. The model chooses its strategy.
 
 - [Tools](docs/tool-reference.md): arguments, responses and limits.
 - [Host contract](docs/mcp-host-contract.md): how Cursor and other agents receive those tools.

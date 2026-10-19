@@ -13,7 +13,6 @@ git archive --output="$TFT_INSTALL/source.tar" HEAD
 tar -xf "$TFT_INSTALL/source.tar" -C "$TFT_INSTALL/source"
 env -u APPIMAGE python3 -m venv "$TFT_INSTALL/venv"
 env -u APPIMAGE "$TFT_INSTALL/venv/bin/python" -m pip install "$TFT_INSTALL/source[dev]"
-cp -R "$TFT_INSTALL/source/.agents" "$TFT_INSTALL/host/.agents"
 cp "$TFT_INSTALL/source/data/set4/player-results/comps.sqlite" "$TFT_INSTALL/comps.sqlite"
 git -C "$TFT_INSTALL/host" init -q
 sha256sum "$TFT_INSTALL/source.tar"
@@ -33,7 +32,7 @@ cd "$TFT_INSTALL/host"
 codex --model gpt-6-luna
 ```
 
-Ask the fresh session to use `$tft-mcp` to play a game. An actual `get_decision` call proves tool execution. Registration alone does not. The repository skill is available automatically when Codex opens this checkout; the installation copies it into the dedicated host directory.
+Ask the fresh session to play a game with the TFT tools. The host receives mechanics through MCP initialization instructions and tool descriptions. An actual `get_decision` call proves tool execution. Registration alone does not.
 
 `TFT_MCP_SEED` is required, with decimal digits in `0..2147483647`. `TFT_MCP_MODE` chooses the game: `full` (the default) or `single_player`. The server starts that game when connected. Restart the server for another game or the other mode.
 

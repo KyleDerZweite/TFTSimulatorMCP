@@ -1,5 +1,15 @@
 # Verification
 
+## Skill-free setup and local reference on 2026-10-19
+
+Checked from base `ace84a75b8e962ffbc2db1efe274a449105f7aa9` with only skill and documentation changes. MCP initialization instructions and tool descriptions supply gameplay mechanics. Setup no longer installs or invokes a repository skill.
+
+The existing `comp_download` command revalidated the previously downloaded Kaggle CSV and Riot items against their pinned hashes. A fresh `comp_index --database data/set4/player-results/comps.local.sqlite` build processed 748,928 boards. All seven ordered application tables and the schema match the committed reference; SQLite integrity is `ok`. The result contains 682 comps, 5,994 trait rows and 4,352 item builds. Its SHA-256 is `1829f0dd970b314fb07b5b1840f40f5c9351e84bef825f7f68b60a79d49b04b5`. The local database is ignored by Git and selected through `TFT_MCP_COMP_DB`.
+
+Installed SDK checks ran from empty external host directories without a skill or `PYTHONPATH`. Both modes supplied initialization instructions, listed 20/19 tools, answered all three data-query families from the rebuilt database, preserved observation state across reads, progressed a round and shut down gracefully. Production code and the simulator retain the PR 9 identities below. These are scripted SDK checks; no new model game or full-suite run was performed for this documentation change.
+
+Evidence: `/home/kyle/.local/share/tft-simulator-mcp/skill-free-data-20261019-yq1fgtlv/`, including build output, source URLs/hashes, ordered-table checks and SDK receipts.
+
 ## PR 9 integration on 2026-10-19
 
 Tested MCP revision `1b9f753cf53312e12a4d1f7f0bece04a7a6d7f63`, main base `b72adbf3dc18f930630a564d6625d06778b30cab`, original PR head `0effceb0fddaff0fdebd42865930ed144f61d1ae`. Later documentation edits leave production and tests unchanged. The accepted contract is this PR's 20-tool lobby and 19-tool campaign, with native validation and observations.
