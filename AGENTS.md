@@ -2,6 +2,8 @@
 
 Read SPEC.md before implementation, GLOSSARY.md for domain terms, and docs/mcp-host-contract.md before changing how agents receive tools. This repository owns the MCP server, documentation and tests. Use ordinary Python and the existing concrete adapter; do not add a generic dispatcher or provider framework.
 
+Write all documentation, issue titles and bodies, and pull request titles and descriptions in English.
+
 The installed simulator is an external dependency. Do not vendor or modify Simulator code, rules or defaults. Rules come from its installed definitions without a fixed set label, set selector or copied catalog. Pin the tested upstream Git revision and verify installed source identity.
 
 Code belongs in src/tft_mcp/, tests in tests/, shared prompts and packaging in the root, and detailed documentation in docs/. Preserve the tft_mcp import and tft-mcp launcher. SPEC.md owns module responsibilities and protocol behavior.
