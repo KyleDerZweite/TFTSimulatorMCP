@@ -1,5 +1,15 @@
 # Verification
 
+## Isolated native Codex game on 2026-10-19
+
+MCP `f43e6608bfb04d2b1ca983ecb1d410f372a3ef11`, with all 21 installed production modules matching checkout, ran one full lobby against seven unchanged baselines. The simulator retains the PR 9 revision and digest below. Native Codex 0.163.0 used GPT-6.1-Sol, High Reasoning and seed 0. Player 0 placed 2nd of 8 with -6 health at level 9. The terminal observation reports round 31; native progression last resolved round 30. The process finished in 14m30s with exit code 0.
+
+All 237 individual TFT calls match across native host events, MCP transcript and audit. There were 235 successes, one `unknown_champion` lookup and one `masked` move. No shell or code tools supplied gameplay. Final `get_players`, repeated terminal `get_decision` and `lobby_complete` agree on the result and all eight placements.
+
+The external host used per-process MCP overrides, ignored user configuration and required ChatGPT login with the API key unset. Its old global `tft` registration was backed up privately and removed. Previous unrelated settings and authentication bytes remain unchanged. An additional unrelated project entry appeared during the run and was preserved. Observed child processes stopped, but `game_closed` was absent. A hosted ChatGPT connector transport warning did not interrupt the local game. This single game establishes the installed host journey; broader playing strength and single-player model gameplay remain unverified.
+
+Evidence: `/home/kyle/.local/share/tft-simulator-mcp/isolated-model-game-20261019-crm5p3_j/`, including exact invocation, source identities, logs, `run-summary.json` and `parent-verification.json`. No production or test code changed for this check.
+
 ## Test consolidation on 2026-10-19
 
 Tested MCP head `bb28c7c7e0bd6eaadd0caa5706d0c93f6f80c539` against base `d5a21f57f19c3eec503a6733cc28e5dd809116f3`. Single-player tests now share one module; logging and catalog tests share setup and overlapping journeys. Tests shrink by 127 lines. Both game modes, production modules and shared test helpers remain unchanged.
