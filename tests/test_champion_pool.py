@@ -92,3 +92,20 @@ async def test_pool_tool_is_a_pure_exact_read(tmp_path):
             'code': 'unknown_champion', 'message': 'Unknown champion: Kayn.',
             'details': {'champion_id': 'Kayn'}}
         assert (await session.call_tool('get_decision', {})).structuredContent == before
+
+
+def test_native_duplicator_can_reduce_visible_estimate_without_consuming_pool(tmp_path):
+    from Simulator.encoding.token.action import ActionToken
+    from support import install_units
+    session = started_session(tmp_path)
+    player = install_units(session, board=[((0, 0), 'yasuo', 1, [])])
+    player.item_bench[0] = 'champion_duplicator'
+    with session.simulator_scope():
+        session.game.player_manager.action_handlers['player_0'] = ActionToken(player)
+    before = session.get_champion_pool('yasuo')
+    actual = session.game.pool_obj.COST_1['yasuo']
+    session.equip_item(item_slot=0, target={'kind': 'board', 'x': 0, 'y': 0})
+    after = session.get_champion_pool('yasuo')
+    assert after['visible_copies'] == before['visible_copies'] + 1
+    assert after['remaining'] == before['remaining'] - 1
+    assert session.game.pool_obj.COST_1['yasuo'] == actual

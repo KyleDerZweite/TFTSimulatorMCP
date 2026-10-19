@@ -79,7 +79,7 @@ class GameSession:
         return champion_catalog.get_champion(champion_id)
 
     def get_champion_pool(self, champion_id):
-        """Most copies that can remain after subtracting the current visible position."""
+        """Visible-state pool estimate without reading hidden opponent holdings."""
         with SIMULATOR_LOCK:
             if self.game is None:
                 raise SessionError('no_game', 'Start a game before inspecting player state.')
@@ -703,8 +703,15 @@ class GameSession:
         alive = self.game.num_alive
         with self.simulator_scope():
             result = self.game.step_controlled([action], ("player_0",))
-        self._require_accepted(result)
-        return self._apply_result(retained, result, kind, alive)
+            self._require_accepted(result)
+            self._note_removals(retained, alive)
+            result = self._finish_until_decision(result)
+            if action[0] in (5, 6) and not result["start_turn"] and not result["terminal"]:
+                from Simulator.encoding.llm_observation import remember_action
+                # Native movement/equipment hints omit some fields after swaps or merges.
+                # Ask its native renderer to compare every visible section.
+                remember_action(self.game, "player_0", action, True, True)
+        return self._apply_result([], result, kind)
 
     def _require_accepted(self, result):
         if not result["accepted"]:
@@ -721,26 +728,32 @@ class GameSession:
                 result = self.game.finish_round()
             self._require_accepted(result)
             return self._apply_result([], result, "end_turn")
-        result = None
-        trace = []
-        reward = 0.0
         with self.simulator_scope():
-            for _ in range(MAX_PROGRESS_STEPS):
-                retained = self._living_players()
-                alive = self.game.num_alive
-                result = self.game.finish_controlled_round(("player_0",))
-                self._note_removals(retained, alive)
-                trace.extend(result["trace"])
-                reward += result["rewards"]["player_0"]
-                controlled_ready = (self.game.agent_selection == "player_0"
-                                    and not self.game.terminations.get("player_0", True)
-                                    and not self.game.truncations.get("player_0"))
-                if result["terminal"] or controlled_ready:
-                    break
-            else:
-                raise SessionError("internal_error", "Simulator progression exceeded 6000 steps.")
-        result = {**result, "trace": trace, "rewards": {**result["rewards"], "player_0": reward}}
+            retained = self._living_players()
+            alive = self.game.num_alive
+            result = self.game.finish_controlled_round(("player_0",))
+            self._note_removals(retained, alive)
+            result = self._finish_until_decision(result)
         return self._apply_result([], result, "end_turn")
+
+    def _finish_until_decision(self, result):
+        """Finish baselines after elimination on either explicit or automatic combat."""
+        trace = list(result["trace"])
+        reward = result["rewards"]["player_0"]
+        for _ in range(MAX_PROGRESS_STEPS):
+            controlled_ready = (self.game.agent_selection == "player_0"
+                                and not self.game.terminations.get("player_0", True)
+                                and not self.game.truncations.get("player_0"))
+            if result["terminal"] or controlled_ready:
+                return {**result, "trace": trace,
+                        "rewards": {**result["rewards"], "player_0": reward}}
+            retained = self._living_players()
+            alive = self.game.num_alive
+            result = self.game.finish_controlled_round(("player_0",))
+            self._note_removals(retained, alive)
+            trace.extend(result["trace"])
+            reward += result["rewards"]["player_0"]
+        raise SessionError("internal_error", "Simulator progression exceeded 6000 steps.")
 
 
 def _flat_location(location):

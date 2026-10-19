@@ -37,14 +37,14 @@ def test_move_observation_is_the_simulator_delta(tmp_path):
     session.game.player_manager.action_handlers['player_0'] = ActionToken(player)
     opening = session.get_decision()
     assert opening['text'].startswith('round ')
-    assert '    traits' in opening['text']
+    assert 'traits' in opening['text'].splitlines()
     move = next(command for command in opening['mask']
                 if command['action_type'] == 5 and command['x1'] < 28 and command['x2'] < 28
                 and command['x1'] != command['x2'])
     result = session.move_unit(source={'kind': 'board', 'x': move['x1'] // 4, 'y': move['x1'] % 4},
                                target={'kind': 'board', 'x': move['x2'] // 4, 'y': move['x2'] % 4})
     headers = [line for line in result['text'].splitlines() if line and not line.startswith(' ')]
-    assert headers == ['action succeeded', 'board']
+    assert [line for line in headers if not line.startswith('actions ')] == ['action succeeded', 'board']
     assert result['text'] == session.game.llm_observe('player_0')['text']
     assert session.get_decision()['text'] == result['text']
     before = session.get_decision()
@@ -59,6 +59,44 @@ def test_idle_decision_rejects_without_a_game(tmp_path):
     with pytest.raises(SessionError, match='Start a game') as error:
         session.get_decision()
     assert error.value.code == 'no_game'
+
+
+@pytest.mark.parametrize('mode', ['full', 'single_player'])
+def test_bench_board_swap_reports_changed_traits(tmp_path, mode):
+    from Simulator.encoding.token.action import ActionToken
+    session = GameSession(tmp_path / 'audit.jsonl', tmp_path / 'native')
+    session.start_game(0, mode)
+    player = install_units(session, board=[((0, 0), 'garen', 1, [])],
+                           bench=[(0, 'yasuo', 1, [])])
+    with session.simulator_scope():
+        player.update_team_tiers()
+        session.game.player_manager.action_handlers['player_0'] = ActionToken(player)
+        vars(getattr(session.game, 'view', session.game)).pop('_llm_caches', None)
+    opening = session.get_decision()
+    assert 'traits' in opening['text'].splitlines()
+    result = session.move_unit(source={'kind': 'bench', 'slot': 0},
+                               target={'kind': 'board', 'x': 0, 'y': 0})
+    assert 'traits' in result['text'].splitlines()
+    assert 'exile' in result['text']
+    assert session.get_decision() == result
+    assert session.game.player_manager.player_states['player_0'].board[0][0].name == 'yasuo'
+
+
+@pytest.mark.parametrize('mode', ['full', 'single_player'])
+def test_duplicator_board_merge_reports_changed_unit_count(tmp_path, mode):
+    from Simulator.encoding.token.action import ActionToken
+    session = GameSession(tmp_path / 'audit.jsonl', tmp_path / 'native')
+    session.start_game(0, mode)
+    player = install_units(session, board=[((0, 0), 'yasuo', 1, []), ((1, 0), 'yasuo', 1, [])])
+    player.item_bench[0] = 'champion_duplicator'
+    with session.simulator_scope():
+        session.game.player_manager.action_handlers['player_0'] = ActionToken(player)
+        vars(getattr(session.game, 'view', session.game)).pop('_llm_caches', None)
+    assert 'units_in_play 2' in session.get_decision()['text']
+    result = session.equip_item(item_slot=0, target={'kind': 'board', 'x': 0, 'y': 0})
+    assert 'units_in_play 1' in result['text']
+    assert session.game.player_manager.player_states['player_0'].num_units_in_play == 1
+    assert session.get_decision() == result
 
 
 @pytest.mark.parametrize('environment', [

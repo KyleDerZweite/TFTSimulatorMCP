@@ -145,7 +145,10 @@ async def test_tools_describe_installed_simulator_without_set_selector(tmp_path)
     import re
     async with client(tmp_path) as session:
         for tool in (await session.list_tools()).tools:
-            assert re.search(r'\bset\s*\d+\b', tool.description, re.IGNORECASE) is None
+            if tool.name in {'search_comps_by_champions', 'search_comps_by_trait', 'search_champion_items'}:
+                assert re.search(r'\bSet 4\b', tool.description)
+            else:
+                assert re.search(r'\bset\s*\d+\b', tool.description, re.IGNORECASE) is None
             assert not {'set', 'set_id', 'set_number'} & set(tool.inputSchema.get('properties', {}))
         result = await session.call_tool('get_decision', {'set': 4})
         assert result.isError

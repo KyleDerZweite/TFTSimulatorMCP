@@ -1,6 +1,6 @@
 # MCP tools
 
-All calls take JSON objects. Unknown keys and invalid types reject. Successful actions and `get_decision` return one observation: `reward`, `start_turn`, `terminal`, `mask`, and `text`. `text` comes from the simulator `llm_observe` view. The first observation lists the visible position, including opponent boards and traits. Later action results start with `action succeeded` and list only sections that changed. The host presents that result before the next tool call. Errors set MCP `isError` and return `{code, message, details}`. Reads and masked rejections spend nothing. A masked action's message is `The action failed.`
+All calls take JSON objects. Unknown keys and invalid types reject. Successful actions and `get_decision` return one observation: `reward`, `start_turn`, `terminal`, `mask`, and `text`. `text` comes from the native renderer, through `llm_observe` in full mode or the concrete single-player view. The first observation lists the visible position, including opponent boards and traits. Later action results start with `action succeeded` and list only sections that changed. The host presents that result before the next tool call. Errors set MCP `isError` and return `{code, message, details}`. Reads and masked rejections spend nothing. A masked action's message is `The action failed.`
 
 | Tools | Arguments / result |
 | --- | --- |
@@ -9,7 +9,7 @@ All calls take JSON objects. Unknown keys and invalid types reject. Successful a
 | `get_board` | Optional `player_id`. All 28 board slots; omission selects you. |
 | `search_champions` | Optional `query`, `cost` 1..5, `trait_id`. Champion summaries. |
 | `get_champion` | Required `champion_id`. Raw stats, rule parameters and Chosen metadata. |
-| `get_champion_pool` | Required `champion_id`. Installed pool size, visible copies, and the most that can remain. |
+| `get_champion_pool` | Required `champion_id`. Installed pool size, visible copies, and a remaining-copy estimate. |
 | `search_traits` / `get_trait` | Optional `query` / required `trait_id`. Thresholds / effects and members. |
 | `search_items` / `get_item` | Optional `query`, `kind` / required `item_id`. Summaries / effects, recipes and constraints. |
 | `search_comps_by_champions` | Required `champions` (one or more) and `limit` 1..50. Highest top-4-rate final boards that include every named champion. |
@@ -26,7 +26,7 @@ A location is `{"kind":"board","x":3,"y":0}` or `{"kind":"bench","slot":0}`. Boa
 
 Search matches case-insensitive ID substrings. Exact lookups require case-sensitive simulator IDs. Champion filters combine with AND; item `kind` is `component`, `equipment` or `consumable`. No match returns an empty list. Definitions expose raw installed values, with unavailable text descriptions marked explicitly.
 
-`get_champion_pool` subtracts the current visible position from the installed pool size. Your board, your bench, and living opponents' boards count. A 1-star unit is 1 copy, a 2-star is 3, and each further star multiplies by 3. Shop offers stay in the pool until bought. Opponent benches and shops stay hidden, so the true pool can be lower than `remaining`. Eliminated players are omitted. The read spends nothing and does not change the pool.
+`get_champion_pool` subtracts the current visible position from the installed pool size. Your board, your bench, and living opponents' boards count. A 1-star unit is 1 copy, a 2-star is 3, and each further star multiplies by 3. Shop offers stay in the pool until bought. The result is an estimate. Hidden holdings and native duplication effects can make the actual pool differ in either direction. Eliminated players are omitted. The read spends nothing and does not change the pool.
 
 `search_comps_by_champions` and `search_comps_by_trait` read the Set 4 Challenger EUW final-board index, pooled across patches 10.19 through 11.1. A comp is the exact set of champion names. Win rate is placements 1 through 4 divided by the number of those boards. Trait level is the recorded unit count, such as 6 for six Cultists. The trait query counts only boards at that exact count. Names accept the recorded spelling or the simulator id. The index keeps a champion list when it appears on at least 100 final boards, and a trait level when that count was recorded on at least 100 boards of that list. Ties break toward more games, then alphabetical champion lists. `search_champion_items` uses the same index. An item build is the exact multiset of items on one champion, at any star level. The index keeps a build recorded on at least 100 boards. One or two optional items keep only builds that include them. Item names accept the recorded name or the simulator id. These reads spend nothing and do not change the live game.
 
@@ -44,7 +44,7 @@ A planning phase ends when the model calls `end_turn` or the simulator applies t
 
 ## Native limits
 
-The simulator mask rejects illegal buys, sales, moves, equipment, refreshes, and experience purchases. Those rejections leave the game unchanged. Kayn assignment and combat use inconsistent native form names, so transformation correctness is unproven.
+The simulator mask rejects illegal buys, sales, moves, equipment, refreshes, and experience purchases. Those rejections leave the game unchanged. Kayn assignment and combat use inconsistent native form names, so transformation correctness is unproven. The pinned native token encoder asserts that the round is below 40, although the single-player campaign has 45 controlled rounds. Reaching that limit fails without committing the candidate; completing a late campaign needs an upstream encoder fix. The adapter keeps native assertions enabled.
 
 Carousel choices remain automatic. There is no fixed game duration or resume. Rule lookups use the installed simulator. Comp win rates use the Challenger final-board index.
 

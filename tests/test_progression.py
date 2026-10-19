@@ -55,6 +55,20 @@ def test_real_seed_zero_elimination_finishes_lobby_and_freezes_state(tmp_path):
     assert session.start_game(0)['round'] == 1
 
 
+def test_elimination_on_fifteenth_action_finishes_the_lobby(tmp_path):
+    session = GameSession(tmp_path / 'audit.jsonl', tmp_path / 'native')
+    session.start_game(0)
+    for _ in range(14):
+        assert not session._controlled([0, 0, 0], 'pass')['terminal']
+    session.game.player_manager.player_states['player_0'].health = -1000
+    observed = session._controlled([0, 0, 0], 'pass')
+    assert observed['terminal']
+    assert session.get_game_status()['outcome'] == {
+        'controlled_placement': 8, 'lobby_complete': True, 'reason': 'lobby_complete'}
+    assert session.terminal_snapshot['economy']['health'] <= 0
+    assert session.get_decision() == observed
+
+
 def test_failed_candidate_restores_graph_logs_rng_and_retries(tmp_path, monkeypatch):
     import builtins
     import os

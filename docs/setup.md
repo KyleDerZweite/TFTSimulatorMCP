@@ -39,6 +39,8 @@ Ask the fresh session to use `$tft-mcp` to play a game. An actual `get_decision`
 
 For single-player, add `TFT_MCP_MODE=single_player` to the host's server environment. Both modes use the same installed launcher. Keep the absolute `TFT_MCP_COMP_DB` path for the separate database.
 
+The pinned simulator's token encoder rejects round 40 and later. Early single-player games work, but completing its 45-round campaign requires an upstream fix. Failed progression rolls back; native assertions remain enabled.
+
 The committed database supports runtime queries. To download the raw sources separately and rebuild it with the installed commands:
 
 ```sh

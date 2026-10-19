@@ -25,7 +25,7 @@ TOOLS = [
     Tool(name="get_champion", description="Read an exact champion ID: raw stats, ability parameters, star prices and Chosen metadata. Text descriptions are unavailable.",
         inputSchema={"type": "object", "properties": {"champion_id": {"type": "string"}}, "required": ["champion_id"], "additionalProperties": False},
         outputSchema={"type": "object", "properties": CHAMPION_PROPERTIES, "required": list(CHAMPION_PROPERTIES), "additionalProperties": False}),
-    Tool(name="get_champion_pool", description="Read the most copies of an exact champion ID that can remain in the pool. Subtracts your board, your bench, and living opponents' boards. One star counts as 1 copy, and each further star multiplies that by 3. Shop offers stay in the pool until bought. Opponent benches and shops stay hidden, so the true pool can be lower.",
+    Tool(name="get_champion_pool", description="Estimate remaining copies of an exact champion ID from the visible position. Subtracts your board, your bench, and living opponents' boards. One star counts as 1 copy, and each further star multiplies that by 3. Shop offers stay in the pool until bought. Hidden holdings and native duplication effects can make the actual pool differ in either direction.",
         inputSchema={"type": "object", "properties": {"champion_id": {"type": "string"}}, "required": ["champion_id"], "additionalProperties": False},
         outputSchema={"type": "object", "properties": POOL_PROPERTIES, "required": list(POOL_PROPERTIES), "additionalProperties": False}),
     Tool(name="search_traits", description="Search installed trait IDs and activation thresholds.",
@@ -91,7 +91,7 @@ TOOLS = [
 SINGLE_PLAYER_DESCRIPTIONS = {
     "end_turn": "Pass the rest of this planning phase and run this round's fight. Returns the next observation. Read it before another tool call. reward 1 means the fight was won. A lost fight ends the game with terminal true. get_last_fight shows what you fought.",
     "get_decision": "Read the current observation before choosing an action. The first read returns the full visible position. A later read repeats the last delivered observation.",
-    "get_champion_pool": "Read the most copies of an exact champion ID that can remain in the pool. Subtracts your board and bench. Generated enemies use a separate pool. One star counts as 1 copy, and each further star multiplies that by 3. Shop offers stay in the pool until bought.",
+    "get_champion_pool": "Estimate remaining copies of an exact champion ID from the visible position. Subtracts your board and bench. Generated enemies use a separate pool. One star counts as 1 copy, and each further star multiplies that by 3. Shop offers stay in the pool until bought.",
 }
 
 

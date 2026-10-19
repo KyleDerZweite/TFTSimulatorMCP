@@ -81,7 +81,7 @@ class SinglePlayer:
         if self.terminal:
             self.episode_outcome = "won" if reward > 0 else "lost"
         self._sync_view()
-        remember_action(self.view, "player_0", action, True, advanced or self.terminal)
+        remember_action(self.view, "player_0", action, True, advanced or self.terminal or action[0] in (5, 6))
         return {"accepted": True, "terminal": self.terminal, "start_turn": advanced,
                 "rewards": {"player_0": reward},
                 "trace": [{"player_id": "player_0", "round": fight_round, "action": list(action)}]}
