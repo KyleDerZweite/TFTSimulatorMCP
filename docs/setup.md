@@ -1,6 +1,6 @@
 # Install and connect
 
-Use Git, [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13.x, at least 0.13.5, and a fresh external environment. This uv version can provision the pinned Python 3.14.8. The checkout uses that interpreter for reproducible development and installed checks; package metadata retains Python 3.10+ support. The pinned simulator installs automatically. Keep each installation separate from old packages sharing the `tft_mcp` import.
+Use Git, [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13.x, at least 0.13.5, and a fresh external environment. `.python-version` selects the Python 3.14 line without fixing its patch release. Use `uv python upgrade 3.14` to update a managed local interpreter to the latest patch available to uv. Development and installed checks used Python 3.14.8; package metadata retains Python 3.10+ support. The pinned simulator installs automatically. Keep each installation separate from old packages sharing the `tft_mcp` import.
 
 Run from the checkout at the revision you want to install:
 

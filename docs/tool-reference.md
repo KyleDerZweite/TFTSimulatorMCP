@@ -58,7 +58,7 @@ env -u APPIMAGE PYTHONHASHSEED=0 PYTHONPATH=src uv run --locked python -m pytest
 env -u APPIMAGE uv build
 ```
 
-Commit `uv.lock` with intentional dependency changes. Use `uv lock --upgrade-package <name>` for a scoped update, then rerun checkout and installed checks. Keep `tft-simulator` updates separate: its Git pin requires source-identity and gameplay acceptance. Native Dependabot uv updates are not configured because GitHub currently supports only [uv 0.11](https://docs.github.com/en/code-security/reference/supply-chain-security/supported-ecosystems-and-repositories), which cannot provision the pinned interpreter. Use the scoped manual update command until the hosted updater supports the required uv series. This maintenance adds no Actions workflow.
+Commit `uv.lock` with intentional dependency changes. Use `uv lock --upgrade-package <name>` for a scoped update, then rerun checkout and installed checks. Keep `tft-simulator` updates separate: its Git pin requires source-identity and gameplay acceptance. Native Dependabot uv updates are not configured because GitHub currently supports only [uv 0.11](https://docs.github.com/en/code-security/reference/supply-chain-security/supported-ecosystems-and-repositories), which predates this project's required uv series. Use the scoped manual update command until the hosted updater supports the required uv series. This maintenance adds no Actions workflow.
 
 For installed SDK checks, use a separate noneditable environment as in [setup.md](setup.md), omit `--no-dev` from its sync command, and run from a fresh directory outside both checkouts:
 
