@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=66"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,14 +8,15 @@ version = "0.1.0"
 description = "Local stdio MCP tools for the installed TFT simulator"
 requires-python = ">=3.10"
 readme = "README.md"
-license = {file = "LICENSE"}
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 dependencies = ["mcp>=1.30,<2", "anyio>=4.5", "jsonschema>=4.20", "tft-simulator @ git+https://github.com/silverlight6/TFTMuZeroAgent.git@a197a2a5bfab26c2900ac77e7b48c349efc14016"]
 
 [project.urls]
 Repository = "https://github.com/KyleDerZweite/TFTSimulatorMCP"
 "Original simulator" = "https://github.com/silverlight6/TFTMuZeroAgent"
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = ["pytest>=8"]
 
 [project.scripts]
@@ -26,3 +27,6 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.uv]
+required-version = ">=0.13.5,<0.14"

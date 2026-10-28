@@ -1,5 +1,41 @@
 # Verification
 
+## uv maintenance on 2026-10-28
+
+Base and unchanged HEAD are `b6f8fe17c8b025d990256167a5c7440ed7da514d` on `main`. The repository was initially clean. This maintenance changes packaging and developer workflows. `SPEC.md` retains module ownership, protocol behavior and the MCP-to-simulator dependency direction. Runtime code, simulator rules and the simulator pin remain unchanged.
+
+Development requires uv `>=0.13.5,<0.14` and the Python 3.14 line; the checks below used Python 3.14.8. The first checks below used uv 0.11.16 with an already installed interpreter. Independent review established that this older uv could not provision the pinned Python on a fresh host. Root verified that uv 0.13.5 lists and downloads Python 3.14.8 into a separate installation directory. Pytest moves to the default `dev` dependency group. The 52-package universal lock retains Python `>=3.10`; other Python versions resolved but received no runtime acceptance here. Native uv Dependabot configuration was removed before delivery because [GitHub currently supports uv 0.11](https://docs.github.com/en/code-security/reference/supply-chain-security/supported-ecosystems-and-repositories). Scoped manual updates remain documented, and simulator upgrades still require separate acceptance.
+
+Root then completed a fresh locked noneditable installation with the downloaded
+interpreter. Real SDK startup, initial observations and graceful shutdown passed
+for the 20-tool lobby and 19-tool campaign, with the unchanged simulator revision
+and source digest verified from the audit. Three installed protocol/restart checks
+passed outside both checkouts without `PYTHONPATH`. These focused checks supplement
+the earlier full-suite receipts below. They do not establish a new model-driven
+game or complete campaign acceptance.
+
+Package metadata now uses the existing `Apache-2.0` license expression and requires
+Setuptools 77 or later. The `LICENSE` file and its terms are unchanged. Fresh
+distribution builds include that license file.
+
+| Check | Result |
+| --- | --- |
+| Lock and environment | `uv lock --check`, `uv sync --frozen` and `uv pip check` passed. |
+| Build | `env -u APPIMAGE UV_CONCURRENT_BUILDS=2 uv build` produced an sdist and wheel. All 21 production modules match checkout; no simulator source is vendored. Existing setuptools license-table deprecation remains. |
+| Runtime-only installation | `uv sync --locked --no-dev --no-editable` installed 36 packages. External SDK smoke checks passed 20/19 tools, initial observation and graceful shutdown in both modes. |
+| Installed acceptance | 20 passed in 561.90 seconds. Includes exact three-process full-game replay and native late-campaign assertion/rollback. Ran outside both checkouts without `PYTHONPATH`, using the absolute installed launcher and a separate database. |
+| Checkout suite | 207 passed in 1413.40 seconds with `env -u APPIMAGE PYTHONHASHSEED=0 PYTHONPATH=src uv run --locked python -m pytest tests -q`. |
+
+The noneditable test environment has 41 packages, including MCP 1.30.0, NumPy 2.5.4, anyio 4.15.1 and pytest 9.2.0. All installed MCP modules and metadata match the final wheel. Installed simulator revision is `a197a2a5bfab26c2900ac77e7b48c349efc14016`, source SHA-256 `5d0b5b8f3bcf42818e51af5fb457aa27c7a35456351795abd1d9ef0bb2ef53f8`. No new model-driven host game was run.
+
+No compatible encoder update was found on upstream's default branch or in open PRs. Upstream `main` remains exactly the simulator pin, with zero commits ahead and no open PRs. Its [native encoder](https://github.com/silverlight6/TFTMuZeroAgent/blob/a197a2a5bfab26c2900ac77e7b48c349efc14016/Simulator/encoding/token/basic_observation.py#L385) still asserts `game_round < 40`. The late-campaign regression proves the error and rollback. Complete 45-round campaign acceptance remains blocked, with assertions enabled.
+
+Remote default HEAD matches local HEAD; there are no open PRs or dependency-update PRs. Dependabot vulnerability alerts were enabled and confirmed with HTTP 204. The paginated inventory then returned zero alerts, which does not establish a scan of this unpushed lock. Automatic security updates remain disabled; secret scanning and push protection remain enabled. Code scanning remains unavailable, HTTP 404 `no analysis found`. GitHub also created its managed `Dependency Graph` entry at `dynamic/dependabot/update-graph`; no repository Actions CI workflow was added. Issue #2 remains unchanged; local docs record its current 20/19-tool acceptance. The older 16-tool verification below remains historical.
+
+Parallel setup initially hit a 300-second uv Git-cache lock timeout. The first sync later ended with signal 143, cause unconfirmed. A duplicate checkout download was stopped before tests began; serial setup then reused the completed cache. Failed setup logs and final test receipts remain separate.
+
+Evidence: `/home/kyle/.local/share/tft-simulator-mcp/uv-maintenance-20261028-trbpq25z/`. The `source/` directory captures this working diff, not a committed revision. Receipts contain exact commands and environments. No commit, push, merge, deployment or persistent host registration occurred. Independent review remains Root-owned.
+
 ## Isolated native Codex game on 2026-10-19
 
 MCP `f43e6608bfb04d2b1ca983ecb1d410f372a3ef11`, with all 21 installed production modules matching checkout, ran one full lobby against seven unchanged baselines. The simulator retains the PR 9 revision and digest below. Native Codex 0.163.0 used GPT-6.1-Sol, High Reasoning and seed 0. Player 0 placed 2nd of 8 with -6 health at level 9. The terminal observation reports round 31; native progression last resolved round 30. The process finished in 14m30s with exit code 0.
