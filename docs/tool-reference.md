@@ -50,8 +50,28 @@ Carousel choices remain automatic. There is no fixed game duration or resume. Ru
 
 ## Developer checks
 
+Use uv 0.13.x, at least 0.13.5, and the Python version in `.python-version`. `uv sync` creates the local `.venv` and installs the default `dev` dependency group. Runtime metadata remains Python 3.10+.
+
 ```sh
-env -u APPIMAGE PYTHONHASHSEED=0 PYTHONPATH=src .venv/bin/python -m pytest tests -q
+env -u APPIMAGE uv sync --locked
+env -u APPIMAGE PYTHONHASHSEED=0 PYTHONPATH=src uv run --locked python -m pytest tests -q
+env -u APPIMAGE uv build
 ```
+
+Commit `uv.lock` with intentional dependency changes. Use `uv lock --upgrade-package <name>` for a scoped update, then rerun checkout and installed checks. Keep `tft-simulator` updates separate: its Git pin requires source-identity and gameplay acceptance. Native Dependabot uv updates are not configured because GitHub currently supports only [uv 0.11](https://docs.github.com/en/code-security/reference/supply-chain-security/supported-ecosystems-and-repositories), which cannot provision the pinned interpreter. Use the scoped manual update command until the hosted updater supports the required uv series. This maintenance adds no Actions workflow.
+
+For installed SDK checks, use a separate noneditable environment as in [setup.md](setup.md), omit `--no-dev` from its sync command, and run from a fresh directory outside both checkouts:
+
+```sh
+cd "$TFT_INSTALL/host"
+env -u APPIMAGE -u PYTHONPATH PYTHONHASHSEED=0 \
+  TFT_MCP_TEST_COMMAND="$TFT_INSTALL/venv/bin/tft-mcp" \
+  TFT_MCP_COMP_DB="$TFT_INSTALL/comps.sqlite" \
+  "$TFT_INSTALL/venv/bin/python" -m pytest \
+  "$TFT_INSTALL/source/tests/test_acceptance.py" \
+  "$TFT_INSTALL/source/tests/test_single_player.py" -q
+```
+
+For the proposed pi integration in [issue #2](https://github.com/KyleDerZweite/TFTSimulatorMCP/issues/2), select the mode before acceptance: the current contract has 20 full-lobby tools or 19 single-player tools. The issue's older 16-tool criterion is stale. This note does not authorize pi implementation or change the issue.
 
 Installed acceptance launches an absolute `tft-mcp` outside both checkouts without `PYTHONPATH`. See [verification.md](verification.md) for actual results and [SPEC.md](../SPEC.md) for module responsibilities.

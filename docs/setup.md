@@ -1,6 +1,6 @@
 # Install and connect
 
-Use Python 3.10+, Git and a fresh external environment. The pinned simulator installs automatically. Keep each installation separate from old packages sharing the `tft_mcp` import.
+Use Git, [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13.x, at least 0.13.5, and a fresh external environment. This uv version can provision the pinned Python 3.14.8. The checkout uses that interpreter for reproducible development and installed checks; package metadata retains Python 3.10+ support. The pinned simulator installs automatically. Keep each installation separate from old packages sharing the `tft_mcp` import.
 
 Run from the checkout at the revision you want to install:
 
@@ -11,14 +11,14 @@ mkdir "$TFT_INSTALL/source" "$TFT_INSTALL/host" "$TFT_INSTALL/logs"
 git rev-parse HEAD > "$TFT_INSTALL/mcp-revision.txt"
 git archive --output="$TFT_INSTALL/source.tar" HEAD
 tar -xf "$TFT_INSTALL/source.tar" -C "$TFT_INSTALL/source"
-env -u APPIMAGE python3 -m venv "$TFT_INSTALL/venv"
-env -u APPIMAGE "$TFT_INSTALL/venv/bin/python" -m pip install "$TFT_INSTALL/source[dev]"
+env -u APPIMAGE UV_PROJECT_ENVIRONMENT="$TFT_INSTALL/venv" \
+  uv sync --project "$TFT_INSTALL/source" --locked --no-dev --no-editable
 cp "$TFT_INSTALL/source/data/set4/player-results/comps.sqlite" "$TFT_INSTALL/comps.sqlite"
 git -C "$TFT_INSTALL/host" init -q
 sha256sum "$TFT_INSTALL/source.tar"
 ```
 
-The archive includes committed source only. Save the selected MCP revision, archive checksum and installed simulator identity separately.
+The archive includes committed source only. Save the selected MCP revision, archive checksum and installed simulator identity separately. `uv sync --locked` checks the committed lock without updating it. `--no-editable` installs the package independently of its source tree. Consumer installation with pip remains supported, but it does not apply the development lock.
 
 Keep TFT in its dedicated game host. Connecting the MCP starts a game, so ordinary development chats should not load it. Use per-run overrides or the host's `.codex/config.toml`; `codex mcp add` writes a user-level registration and is unsuitable for this scope.
 
